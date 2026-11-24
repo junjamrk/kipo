@@ -217,3 +217,42 @@ fn purge_does_not_leave_an_ungrounded_derivation_cycle() -> Result<()> {
     assert!(store.is_tombstoned(&y.origin_library, &y.logical_key)?);
     Ok(())
 }
+
+#[test]
+fn resolve_visible_or_raw_fact_id_normalizes_all_surface_formats_without_oracle_leak() -> Result<()>
+{
+    let (_dir, mut store) = library(LibraryMode::Community)?;
+    let owner: ActorId = "owner".parse()?;
+    let outsider: ActorId = "outsider".parse()?;
+    store.add_member(outsider.clone(), kp_model::MemberRole::Member, AT)?;
+
+    let f = fact("019abc", &["owner"])?;
+    store.insert_fact(&f)?;
+    let lib_id = store.library_id().clone();
+
+    for form in [
+        "019abc".to_owned(),
+        "  019abc  ".to_owned(),
+        "fact_019abc".to_owned(),
+        "kp-ref:019abc".to_owned(),
+        "kp-ref:fact_019abc".to_owned(),
+        format!("{lib_id}:fact-019abc"),
+        format!("kp-ref:{lib_id}:fact-019abc"),
+    ] {
+        assert_eq!(
+            store.resolve_visible_or_raw_fact_id(&owner, AT, &form)?,
+            f.id,
+            "failed to normalize {form:?}"
+        );
+    }
+
+    // Outsider cannot use `fact_` normalization as a visibility oracle for owner's private fact.
+    assert_eq!(
+        store.resolve_visible_or_raw_fact_id(&outsider, AT, "kp-ref:fact_019abc")?,
+        "fact_019abc".parse::<FactId>()?
+    );
+    assert!(store
+        .resolve_visible_or_raw_fact_id(&owner, AT, "kp-ref:   ")
+        .is_err());
+    Ok(())
+}

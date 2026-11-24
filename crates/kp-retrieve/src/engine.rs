@@ -106,8 +106,15 @@ pub fn search_shallow_with_embedder(
         });
     }
     let candidate_limit = limit.max(8).saturating_mul(3).min(200);
-    let snapshot =
-        store.search_snapshot_with_embedder(viewer, at, query, false, candidate_limit, embedder)?;
+    let snapshot = store.search_snapshot_with_query_vector(
+        viewer,
+        at,
+        query,
+        query_vector.as_deref(),
+        false,
+        candidate_limit,
+        embedder,
+    )?;
     let docs = snapshot.documents();
     if docs.is_empty() {
         return Ok(SearchOutput {
@@ -155,10 +162,11 @@ pub async fn search_with_embedder(
     }
     let is_candidate_mode = !options.deep;
     let snapshot = if is_candidate_mode {
-        store.candidate_retrieval_snapshot_with_embedder(
+        store.candidate_retrieval_snapshot_with_query_vector(
             &options.viewer,
             options.at,
             &options.query,
+            query_vector.as_deref(),
             options.limit.max(64),
             embedder,
         )?

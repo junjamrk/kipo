@@ -887,24 +887,15 @@ pub(super) fn execute_inspector_why(
         Err(_) => return Err(InspectorQueryError::Failed),
     }
 
-    let trimmed = raw_fact_id.trim();
-    let stripped = trimmed.strip_prefix("kp-ref:").unwrap_or(trimmed).trim();
-
-    let mut proof_opt: Option<ProofTree> = None;
-    if let Ok(primary_id) = stripped.parse::<FactId>() {
-        proof_opt =
-            kp_derive::why::why(store, &primary_id, viewer, eval_at).map_err(map_store_err)?;
-    }
-    if proof_opt.is_none() {
-        if let Some(without_prefix) = stripped.strip_prefix("fact_") {
-            if let Ok(alt_id) = without_prefix.parse::<FactId>() {
-                proof_opt =
-                    kp_derive::why::why(store, &alt_id, viewer, eval_at).map_err(map_store_err)?;
-            }
-        }
-    }
-
-    let Some(proof) = proof_opt else {
+    let resolved_id = store
+        .resolve_visible_or_raw_fact_id(viewer, eval_at, raw_fact_id)
+        .map_err(|err| match err {
+            kp_store::StoreError::Model(_) => InspectorQueryError::NotFound,
+            other => map_store_err(other),
+        })?;
+    let Some(proof) =
+        kp_derive::why::why(store, &resolved_id, viewer, eval_at).map_err(map_store_err)?
+    else {
         return Err(InspectorQueryError::NotFound);
     };
 

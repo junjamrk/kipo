@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 
 use kp_model::{
@@ -6,17 +7,19 @@ use kp_model::{
     LogicalKey, ModelRoutePolicy, ProjectionPageMeta, ReviewId, ReviewItem, ReviewKind,
     ReviewStatus, SourceId, SourceScopeId, TrustTier, ValidityWindow,
 };
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::{WritebackFactUpdate, WritebackProposalOp};
-use crate::embedding::{encode_vector_le_bytes, guard_and_lock_tx_embedding_dims, FtsOnlyEmbedder};
+use crate::embedding::{
+    encode_vector_le_bytes, guard_and_lock_tx_embedding_dims, sanitize_and_validate_embedding,
+    validate_vector, FtsOnlyEmbedder,
+};
 use crate::export::{format_kp_ref, sanitize_md_inline};
-use crate::facts::write_fact_indexed;
+use crate::facts::{fact_default_passage, write_fact_indexed};
 use crate::governance::{new_fact_id, new_review_id, upsert_open_review_item_tx};
 use crate::maintenance::supersede_indexed_tx;
-use crate::ops::{embed_chunk_texts, ChunkInput};
 use crate::public_ingest::StoredPublicSourceMeta;
 use crate::tombstone::guard;
 use crate::{Embedder, Result, Tokenizer};
@@ -130,12 +133,92 @@ pub(super) fn was_statically_permitted_for_viewer(
     }
 }
 
-pub(super) struct WritebackTxEnv<'a, E: Embedder + ?Sized> {
+pub(super) enum PendingWritebackEmbed {
+    Chunk { chunk_id: String, body: String },
+    Fact { fact_id: FactId, text: String },
+}
+
+pub(super) struct WritebackTxEnv<'a> {
     pub(super) library_id: &'a LibraryId,
     pub(super) actor: &'a ActorId,
     pub(super) at: EpochMs,
     pub(super) tokenizer: &'a Tokenizer,
-    pub(super) embedder: &'a E,
+    pub(super) embedder_enabled: bool,
+    pub(super) embedder_allows_raw_only: bool,
+    pub(super) pending_embeds: &'a RefCell<Vec<PendingWritebackEmbed>>,
+}
+
+/// Computes writeback embeddings strictly outside any SQLite write transaction so remote HTTP
+/// embedders never hold an `Immediate` write lock across network I/O, then persists the resulting
+/// vectors in a short atomic transaction.
+pub(super) fn flush_pending_writeback_embeds<E: Embedder + ?Sized>(
+    db: &mut Connection,
+    embedder: &E,
+    pending: &[PendingWritebackEmbed],
+) -> Result<()> {
+    if pending.is_empty() || !embedder.is_enabled() {
+        return Ok(());
+    }
+    let model_id = embedder.model_id();
+    let is_builtin = model_id == "hash:v1" || model_id == "custom";
+    let mut chunk_vecs: Vec<(&str, Vec<f32>)> = Vec::new();
+    let mut fact_vecs: Vec<(&str, Vec<f32>)> = Vec::new();
+
+    for item in pending {
+        match item {
+            PendingWritebackEmbed::Chunk { chunk_id, body } => {
+                if !is_builtin && body.trim().is_empty() {
+                    continue;
+                }
+                let raw = embedder.embed(body)?;
+                let vec = if is_builtin {
+                    validate_vector(&raw)?;
+                    raw
+                } else {
+                    sanitize_and_validate_embedding(&raw)?
+                };
+                chunk_vecs.push((chunk_id.as_str(), vec));
+            }
+            PendingWritebackEmbed::Fact { fact_id, text } => {
+                if !is_builtin && text.trim().is_empty() {
+                    continue;
+                }
+                let raw = embedder.embed(text)?;
+                let vec = if is_builtin {
+                    validate_vector(&raw)?;
+                    raw
+                } else {
+                    sanitize_and_validate_embedding(&raw)?
+                };
+                fact_vecs.push((fact_id.as_str(), vec));
+            }
+        }
+    }
+
+    if chunk_vecs.is_empty() && fact_vecs.is_empty() {
+        return Ok(());
+    }
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    for (chunk_id, vector) in &chunk_vecs {
+        guard_and_lock_tx_embedding_dims(&tx, model_id, vector.len())?;
+        let blob = encode_vector_le_bytes(vector);
+        tx.execute(
+            "INSERT OR REPLACE INTO chunk_vectors (chunk_id, dims, vec_blob, model_id)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![chunk_id, vector.len(), blob, model_id],
+        )?;
+    }
+    for (fact_id, vector) in &fact_vecs {
+        guard_and_lock_tx_embedding_dims(&tx, model_id, vector.len())?;
+        let blob = encode_vector_le_bytes(vector);
+        tx.execute(
+            "INSERT OR REPLACE INTO fact_vectors (fact_id, dims, vec_blob, model_id)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![fact_id, vector.len(), blob, model_id],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 struct WritebackSourceSpec<'a> {
@@ -146,9 +229,9 @@ struct WritebackSourceSpec<'a> {
     policy: &'a ModelRoutePolicy,
 }
 
-fn write_writeback_source_tx<E: Embedder + ?Sized>(
+fn write_writeback_source_tx(
     tx: &Connection,
-    env: &WritebackTxEnv<'_, E>,
+    env: &WritebackTxEnv<'_>,
     spec: &WritebackSourceSpec<'_>,
 ) -> Result<(SourceId, String, CharSpan)> {
     let WritebackTxEnv {
@@ -156,7 +239,9 @@ fn write_writeback_source_tx<E: Embedder + ?Sized>(
         actor: viewer,
         at,
         tokenizer,
-        embedder,
+        embedder_enabled,
+        embedder_allows_raw_only,
+        pending_embeds,
     } = *env;
     let WritebackSourceSpec {
         uri,
@@ -186,20 +271,9 @@ fn write_writeback_source_tx<E: Embedder + ?Sized>(
         verbatim_quote: (!redacted_body.is_empty()).then(|| redacted_body.to_owned()),
         ..AnchorSpec::default()
     };
-    let chunk_input = ChunkInput {
-        heading: String::new(),
-        body: redacted_body.to_owned(),
-        anchor: chunk_anchor.clone(),
-    };
 
     let is_raw_only = matches!(policy, ModelRoutePolicy::RawOnly);
-    let skip_for_raw_only = is_raw_only && !embedder.allows_raw_only();
-    let chunk_slice = std::slice::from_ref(&chunk_input);
-    let vectors = if skip_for_raw_only {
-        embed_chunk_texts(chunk_slice, &FtsOnlyEmbedder)?
-    } else {
-        embed_chunk_texts(chunk_slice, embedder)?
-    };
+    let skip_for_raw_only = is_raw_only && !embedder_allows_raw_only;
 
     tx.execute(
         "INSERT OR IGNORE INTO raw_blobs (content_sha256, byte_len, content_blob, created_at)
@@ -245,18 +319,13 @@ fn write_writeback_source_tx<E: Embedder + ?Sized>(
         |row| row.get(0),
     )?;
 
-    let model_id = if skip_for_raw_only {
-        FtsOnlyEmbedder.model_id()
-    } else {
-        embedder.model_id()
-    };
-    if let Some(Some(vector)) = vectors.as_ref().and_then(|vs| vs.first()) {
-        guard_and_lock_tx_embedding_dims(tx, model_id, vector.len())?;
-        let blob = encode_vector_le_bytes(vector);
-        tx.execute(
-            "INSERT INTO chunk_vectors (chunk_id, dims, vec_blob, model_id) VALUES (?1, ?2, ?3, ?4)",
-            params![&chunk_id, vector.len(), blob, model_id],
-        )?;
+    if embedder_enabled && !skip_for_raw_only {
+        pending_embeds
+            .borrow_mut()
+            .push(PendingWritebackEmbed::Chunk {
+                chunk_id: chunk_id.clone(),
+                body: redacted_body.to_owned(),
+            });
     }
     tx.execute(
         "INSERT INTO chunks_fts (rowid, title, heading, segmented_body) VALUES (?1, ?2, '', ?3)",
@@ -437,9 +506,9 @@ pub(super) fn enqueue_writeback_proposal_tx(
     Ok(stored.id)
 }
 
-pub(super) fn supersede_fact_via_writeback_tx<E: Embedder + ?Sized>(
+pub(super) fn supersede_fact_via_writeback_tx(
     tx: &Connection,
-    env: &WritebackTxEnv<'_, E>,
+    env: &WritebackTxEnv<'_>,
     old_fact: &Fact,
     updated_object: Value,
     redacted_claim: &str,
@@ -450,7 +519,9 @@ pub(super) fn supersede_fact_via_writeback_tx<E: Embedder + ?Sized>(
         actor: viewer,
         at,
         tokenizer,
-        embedder,
+        embedder_enabled,
+        embedder_allows_raw_only,
+        pending_embeds,
     } = *env;
     let FactAccess::Base { audience, stamp } = &old_fact.access else {
         return Err(
@@ -526,11 +597,15 @@ pub(super) fn supersede_fact_via_writeback_tx<E: Embedder + ?Sized>(
     replacement.validate()?;
 
     let skip_for_raw_only =
-        matches!(orig_policy, ModelRoutePolicy::RawOnly) && !embedder.allows_raw_only();
-    if skip_for_raw_only {
-        supersede_indexed_tx(tx, &old_fact.id, &replacement, tokenizer, &FtsOnlyEmbedder)?;
-    } else {
-        supersede_indexed_tx(tx, &old_fact.id, &replacement, tokenizer, embedder)?;
+        matches!(orig_policy, ModelRoutePolicy::RawOnly) && !embedder_allows_raw_only;
+    supersede_indexed_tx(tx, &old_fact.id, &replacement, tokenizer, &FtsOnlyEmbedder)?;
+    if embedder_enabled && !skip_for_raw_only {
+        pending_embeds
+            .borrow_mut()
+            .push(PendingWritebackEmbed::Fact {
+                fact_id: replacement.id.clone(),
+                text: fact_default_passage(&replacement),
+            });
     }
     copy_fact_entities_tx(tx, &old_fact.id, &replacement.id)?;
     copy_fact_concepts_tx(tx, &old_fact.id, &replacement.id, at)?;
@@ -572,9 +647,9 @@ pub(super) struct StandaloneWritebackFactSpec<'a> {
     pub(super) policy: &'a ModelRoutePolicy,
 }
 
-pub(super) fn insert_standalone_writeback_fact_tx<E: Embedder + ?Sized>(
+pub(super) fn insert_standalone_writeback_fact_tx(
     tx: &Connection,
-    env: &WritebackTxEnv<'_, E>,
+    env: &WritebackTxEnv<'_>,
     spec: StandaloneWritebackFactSpec<'_>,
 ) -> Result<FactId> {
     let WritebackTxEnv {
@@ -582,7 +657,9 @@ pub(super) fn insert_standalone_writeback_fact_tx<E: Embedder + ?Sized>(
         actor,
         at,
         tokenizer,
-        embedder,
+        embedder_enabled,
+        embedder_allows_raw_only,
+        pending_embeds,
     } = *env;
     let StandaloneWritebackFactSpec {
         kind,
@@ -662,11 +739,15 @@ pub(super) fn insert_standalone_writeback_fact_tx<E: Embedder + ?Sized>(
         &fact.logical_key,
     )?;
     let skip_for_raw_only =
-        matches!(policy, ModelRoutePolicy::RawOnly) && !embedder.allows_raw_only();
-    if skip_for_raw_only {
-        write_fact_indexed(tx, &fact, &opaque, tokenizer, &FtsOnlyEmbedder)?;
-    } else {
-        write_fact_indexed(tx, &fact, &opaque, tokenizer, embedder)?;
+        matches!(policy, ModelRoutePolicy::RawOnly) && !embedder_allows_raw_only;
+    write_fact_indexed(tx, &fact, &opaque, tokenizer, &FtsOnlyEmbedder)?;
+    if embedder_enabled && !skip_for_raw_only {
+        pending_embeds
+            .borrow_mut()
+            .push(PendingWritebackEmbed::Fact {
+                fact_id: fact.id.clone(),
+                text: fact_default_passage(&fact),
+            });
     }
     crate::exchange::mark_alignment_dirty_tx(tx, at)?;
     Ok(new_id)

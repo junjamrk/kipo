@@ -59,6 +59,47 @@ impl Store {
             .collect())
     }
 
+    /// Normalizes a user- or tool-supplied fact reference across all supported surface forms:
+    /// raw `<fact_id>`, `kp-ref:<fact_id>`, `kp-ref:fact_<fact_id>`, `fact_<fact_id>`, and
+    /// `<library_id>:fact-<fact_id>` (with optional surrounding whitespace).
+    ///
+    /// Resolves `fact_`-prefixed forms against `(viewer, at)` visibility only, never probing
+    /// facts invisible to `viewer` (preserving non-interference).
+    pub fn resolve_visible_or_raw_fact_id(
+        &self,
+        viewer: &ActorId,
+        at: EpochMs,
+        raw: &str,
+    ) -> Result<FactId> {
+        let trimmed = raw.trim();
+        let after_kp_ref = trimmed
+            .strip_prefix("kp-ref:")
+            .map(str::trim)
+            .unwrap_or(trimmed);
+        if after_kp_ref.is_empty() {
+            return Err(KpError::invalid("fact_id", "fact_id must be nonempty").into());
+        }
+        let lib_prefix = format!("{}:fact-", self.library_id());
+        let candidate = after_kp_ref
+            .strip_prefix(&lib_prefix)
+            .unwrap_or(after_kp_ref);
+        let parsed: FactId = candidate.parse()?;
+        let alt_id = candidate
+            .strip_prefix("fact_")
+            .and_then(|unprefixed| unprefixed.parse::<FactId>().ok());
+        let Some(alt) = alt_id else {
+            return Ok(parsed);
+        };
+        let visible = self.filter_visible_fact_ids(viewer, at, &[parsed.clone(), alt.clone()])?;
+        if visible.contains(&parsed) {
+            return Ok(parsed);
+        }
+        if visible.contains(&alt) {
+            return Ok(alt);
+        }
+        Ok(parsed)
+    }
+
     /// Local administrative graph access. Viewer-facing consumers must call evaluate before emitting data.
     pub fn derivation_view(&self) -> Result<DerivationView> {
         let tx = self.db.unchecked_transaction()?;

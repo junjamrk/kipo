@@ -1653,3 +1653,156 @@ fn writeback_supersede_preserves_fact_concept_links_for_guards() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn audit_log_enforces_derived_scope_on_withdrawn_derived_fact() -> Result<()> {
+    let (_dir, mut store) = library(LibraryMode::Community)?;
+    let alice: ActorId = "owner".parse()?;
+    let bob: ActorId = "bob".parse()?;
+    store.add_member(bob.clone(), MemberRole::Member, AT)?;
+
+    let premise_id = new_fact_id()?;
+    let premise = make_base_fact(
+        premise_id.clone(),
+        "local",
+        FactKind::Observation,
+        "shared_topic",
+        "kp.core.note",
+        json!("Shared public observation visible to all members"),
+        &alice,
+        AudienceSpec::AllMembers,
+        Some("Shared public observation visible to all members"),
+        AT,
+    )?;
+    store.insert_fact(&premise)?;
+
+    let mut derived = derived_fact(
+        store.library_id(),
+        &alice,
+        FactKind::DerivedFact,
+        "alice_private_note",
+        "kp.core.summary",
+        json!("Alice private SelfOnly conclusion derived from shared premise"),
+        AT,
+    )?;
+    derived.governed_scope = Some(kp_model::GovernedScope::SelfOnly {
+        actor: alice.clone(),
+    });
+    let derived_id = derived.id.clone();
+    let just = justification(
+        &derived,
+        DerivationMode::ScopedSynthesis,
+        "test.self_only",
+        &[&premise],
+    )?;
+    store.save_derivations(&[derived], &[just])?;
+
+    // Withdraw the SelfOnly derived fact so it drops out of `evaluated_live` and falls through
+    // to the historical justification premise walk inside `is_fact_audit_visible`.
+    store.forget(derived_id.as_str(), &alice, EpochMs(AT.0 + 10))?;
+
+    let alice_log =
+        store.visible_change_log(&alice, EpochMs(AT.0 + 20), 50, Some(derived_id.as_str()))?;
+    assert!(
+        alice_log.iter().any(|e| e.target_id == derived_id.as_str()),
+        "alice should still audit her own withdrawn SelfOnly derived fact"
+    );
+
+    let bob_log =
+        store.visible_change_log(&bob, EpochMs(AT.0 + 20), 50, Some(derived_id.as_str()))?;
+    assert!(
+        bob_log.is_empty(),
+        "bob must never see alice's SelfOnly derived fact in audit log even when premise is public: {bob_log:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn writeback_embedding_runs_outside_sqlite_immediate_write_lock() -> Result<()> {
+    struct LockProbingEmbedder {
+        db_path: std::path::PathBuf,
+        probes_passed: AtomicUsize,
+    }
+
+    impl Embedder for LockProbingEmbedder {
+        fn embed(&self, _text: &str) -> Result<Vec<f32>> {
+            let conn = rusqlite::Connection::open(&self.db_path)?;
+            conn.busy_timeout(std::time::Duration::from_millis(0))?;
+            conn.execute_batch("BEGIN IMMEDIATE; ROLLBACK;")?;
+            self.probes_passed.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![1.0, 0.0, 0.0, 0.0])
+        }
+
+        fn model_id(&self) -> &str {
+            "test:lock-probe-v1"
+        }
+
+        fn is_enabled(&self) -> bool {
+            true
+        }
+    }
+
+    let dir = tempfile::tempdir()?;
+    let owner: ActorId = "owner".parse()?;
+    let mut store = crate::Store::init_with_embedding(
+        dir.path(),
+        crate::test_support::options(LibraryMode::Personal)?,
+        "test:lock-probe-v1",
+        4,
+    )?;
+    let fact_id = new_fact_id()?;
+    let orig = make_base_fact(
+        fact_id.clone(),
+        "local",
+        FactKind::Observation,
+        "release_note",
+        "kp.core.note",
+        json!("Initial release checklist item"),
+        &owner,
+        AudienceSpec::Explicit(BTreeSet::from([owner.clone()])),
+        Some("Initial release checklist item"),
+        AT,
+    )?;
+    store.insert_fact(&orig)?;
+
+    let probe = Arc::new(LockProbingEmbedder {
+        db_path: dir.path().join("kp.sqlite"),
+        probes_passed: AtomicUsize::new(0),
+    });
+    store.set_embedder(probe.clone());
+
+    let export_dir = tempfile::tempdir()?;
+    store.export_markdown_directory(export_dir.path(), &owner, EpochMs(AT.0 + 10))?;
+    let index_path = export_dir.path().join("index.md");
+    let raw_index = fs::read_to_string(&index_path)?;
+    fs::write(
+        &index_path,
+        replace_entry_line_claim(
+            &raw_index,
+            &fact_id,
+            "Updated release checklist item outside write lock",
+        )?,
+    )?;
+
+    let rep = store.apply_markdown_directory(export_dir.path(), &owner, EpochMs(AT.0 + 20))?;
+    assert_eq!(rep.updated_facts.len(), 1);
+    assert!(
+        probe.probes_passed.load(Ordering::SeqCst) >= 2,
+        "chunk and fact embeddings must both execute outside SQLite Immediate write lock"
+    );
+
+    let new_fact_id = &rep.updated_facts[0].new_fact_id;
+    let fact_vec_count: i64 = store.db.query_row(
+        "SELECT COUNT(*) FROM fact_vectors WHERE fact_id = ?1 AND model_id = 'test:lock-probe-v1'",
+        [new_fact_id.as_str()],
+        |r| r.get(0),
+    )?;
+    let chunk_vec_count: i64 = store.db.query_row(
+        "SELECT COUNT(*) FROM chunk_vectors WHERE chunk_id = ?1 AND model_id = 'test:lock-probe-v1'",
+        [format!("{}-0", rep.updated_facts[0].source_id)],
+        |r| r.get(0),
+    )?;
+    assert_eq!(fact_vec_count, 1);
+    assert_eq!(chunk_vec_count, 1);
+    Ok(())
+}

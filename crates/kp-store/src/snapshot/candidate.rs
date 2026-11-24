@@ -68,6 +68,48 @@ impl Store {
         embedder: &(impl Embedder + ?Sized),
     ) -> Result<RetrievalSnapshot> {
         let query_vector = embed_query_with_fts_fallback(query, embedder)?;
+        self.candidate_retrieval_snapshot_with_query_vector_internal(
+            viewer,
+            at,
+            query,
+            query_vector.as_deref(),
+            candidate_limit,
+            exclude_session_chunks,
+            embedder,
+        )
+    }
+
+    pub fn candidate_retrieval_snapshot_with_query_vector(
+        &self,
+        viewer: &ActorId,
+        at: EpochMs,
+        query: &str,
+        query_vector: Option<&[f32]>,
+        candidate_limit: usize,
+        embedder: &(impl Embedder + ?Sized),
+    ) -> Result<RetrievalSnapshot> {
+        self.candidate_retrieval_snapshot_with_query_vector_internal(
+            viewer,
+            at,
+            query,
+            query_vector,
+            candidate_limit,
+            true,
+            embedder,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn candidate_retrieval_snapshot_with_query_vector_internal(
+        &self,
+        viewer: &ActorId,
+        at: EpochMs,
+        query: &str,
+        query_vector: Option<&[f32]>,
+        candidate_limit: usize,
+        exclude_session_chunks: bool,
+        embedder: &(impl Embedder + ?Sized),
+    ) -> Result<RetrievalSnapshot> {
         if candidate_limit == 0 {
             return Ok(RetrievalSnapshot {
                 documents: Vec::new(),
@@ -76,9 +118,7 @@ impl Store {
         // Process-wide static base tokenizer (`BASE_JIEBA`) avoids dictionary parsing, heap
         // allocation, and cross-actor entity word leakage.
         let query_terms = Tokenizer::shared().tokenize(query);
-        let query_vec_nonzero = query_vector
-            .as_ref()
-            .is_some_and(|v| v.iter().any(|&x| x != 0.0));
+        let query_vec_nonzero = query_vector.is_some_and(|v| v.iter().any(|&x| x != 0.0));
         if query_terms.is_empty() && !query_vec_nonzero {
             return Ok(RetrievalSnapshot {
                 documents: Vec::new(),
@@ -201,7 +241,7 @@ impl Store {
         let mut fact_vec_sims = BTreeMap::<String, f64>::new();
         let mut chunk_vec_sims = BTreeMap::<String, f64>::new();
 
-        if let Some(qvec) = query_vector.as_ref().filter(|_| query_vec_nonzero) {
+        if let Some(qvec) = query_vector.filter(|_| query_vec_nonzero) {
             let mut scored_facts = Vec::<(f64, String)>::new();
             if !is_custom_embedder {
                 if has_vec_model_id {
@@ -541,7 +581,7 @@ impl Store {
             }
         }
 
-        let target_qdims = query_vector.as_ref().map(Vec::len);
+        let target_qdims = query_vector.map(<[f32]>::len);
         let mut documents = Vec::with_capacity(candidate_facts.len() + candidate_chunks.len());
         {
             let fv_sql = if has_vec_model_id {

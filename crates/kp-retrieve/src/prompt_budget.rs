@@ -480,10 +480,12 @@ pub fn retrieve_prompt_context_with_embedder(
         .candidate_limit
         .max(item_cap.saturating_mul(4))
         .max(8);
-    let snapshot = store.candidate_retrieval_snapshot_with_embedder(
+    let query_vector = embed_query_optional(trimmed_query, embedder)?;
+    let snapshot = store.candidate_retrieval_snapshot_with_query_vector(
         viewer,
         at,
         trimmed_query,
+        query_vector.as_deref(),
         candidate_limit,
         embedder,
     )?;
@@ -494,8 +496,6 @@ pub fn retrieve_prompt_context_with_embedder(
         }
         return format_prompt_candidates(viewer, &prompt_candidates, config);
     }
-
-    let query_vector = embed_query_optional(trimmed_query, embedder)?;
 
     let mut rrf = vec![0.0_f64; docs.len()];
     let mut lexical_matched = vec![false; docs.len()];

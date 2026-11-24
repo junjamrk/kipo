@@ -504,6 +504,81 @@ async fn search_shallow_matches_calibrated_rrf_and_preserves_viewer_noninterfere
     Ok(())
 }
 
+#[tokio::test]
+async fn retrieval_paths_embed_query_exactly_once() -> TestResult {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingEmbedder {
+        calls: AtomicUsize,
+    }
+
+    impl Embedder for CountingEmbedder {
+        fn embed(&self, _text: &str) -> kp_store::Result<Vec<f32>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![1.0, 0.0, 0.0, 0.0])
+        }
+        fn model_id(&self) -> &str {
+            "test:counting-v1"
+        }
+        fn is_enabled(&self) -> bool {
+            true
+        }
+    }
+
+    let (_dir, mut store) = library()?;
+    let note = fact(
+        "single-embed",
+        "deploy checklist verify backup first",
+        "carol",
+    )?;
+    store.remember(&[FactInput {
+        fact: note,
+        entities: BTreeSet::new(),
+    }])?;
+
+    let embedder = CountingEmbedder {
+        calls: AtomicUsize::new(0),
+    };
+    let viewer: ActorId = "carol".parse()?;
+
+    let _ = search_shallow_with_embedder(&store, &viewer, AT, "deploy checklist", 5, &embedder)?;
+    assert_eq!(
+        embedder.calls.swap(0, Ordering::SeqCst),
+        1,
+        "search_shallow_with_embedder must embed query exactly once"
+    );
+
+    let opts = SearchOptions {
+        query: "deploy checklist".into(),
+        viewer: viewer.clone(),
+        at: AT,
+        limit: 5,
+        deep: false,
+        max_hops: 0,
+    };
+    let _ = search_with_embedder(&store, &opts, &OffJudge, &embedder).await?;
+    assert_eq!(
+        embedder.calls.swap(0, Ordering::SeqCst),
+        1,
+        "search_with_embedder must embed query exactly once"
+    );
+
+    let _ = crate::retrieve_prompt_context_with_embedder(
+        &store,
+        &viewer,
+        AT,
+        "deploy checklist",
+        &crate::PromptBudgetConfig::default(),
+        &embedder,
+    )?;
+    assert_eq!(
+        embedder.calls.swap(0, Ordering::SeqCst),
+        1,
+        "retrieve_prompt_context_with_embedder must embed query exactly once"
+    );
+    Ok(())
+}
+
 proptest! {
     #![proptest_config(ProptestConfig { cases: 128, rng_seed: proptest::test_runner::RngSeed::Fixed(202), ..ProptestConfig::default() })]
     #[test]

@@ -148,7 +148,9 @@ pub(crate) async fn dispatch_readonly(
         }
         Operation::Why(id, at) => {
             check(Action::Read, None)?;
-            let id = id.parse().map_err(|_| NetError::NotFound)?;
+            let id = store
+                .resolve_visible_or_raw_fact_id(&principal.actor, at, &id)
+                .map_err(|_| NetError::NotFound)?;
             let proof =
                 kp_derive::why::why(store, &id, &principal.actor, at)?.ok_or(NetError::NotFound)?;
             Ok(serde_json::to_value(proof)?)

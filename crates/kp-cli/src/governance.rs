@@ -1671,16 +1671,7 @@ fn allow_guard_once(
     }
     let mut resolved_ids = Vec::with_capacity(raw_fact_ids_or_refs.len());
     for raw_fact_id_or_ref in raw_fact_ids_or_refs {
-        let stripped = raw_fact_id_or_ref
-            .trim()
-            .strip_prefix("kp-ref:")
-            .unwrap_or_else(|| raw_fact_id_or_ref.trim());
-        if stripped.is_empty() {
-            return Err(KpError::invalid("fact_id", "fact_id must be nonempty").into());
-        }
-        resolved_ids.push(crate::mcp::resolve_visible_or_raw_fact_id(
-            store, actor, at, stripped,
-        )?);
+        resolved_ids.push(store.resolve_visible_or_raw_fact_id(actor, at, raw_fact_id_or_ref)?);
     }
     let grants = store.grant_guard_allow_once_many(actor, &resolved_ids, ALLOW_ONCE_TTL_MS, at)?;
     if grants.len() == 1 {
@@ -1710,7 +1701,7 @@ fn reject_fact(
     if trimmed_reason.is_empty() {
         return Err(KpError::invalid("reason", "rejection reason must be nonempty").into());
     }
-    let resolved_id = crate::mcp::resolve_visible_or_raw_fact_id(store, actor, at, raw_fact_id)?;
+    let resolved_id = store.resolve_visible_or_raw_fact_id(actor, at, raw_fact_id)?;
     if !store
         .filter_visible_fact_ids(actor, at, std::slice::from_ref(&resolved_id))?
         .contains(&resolved_id)

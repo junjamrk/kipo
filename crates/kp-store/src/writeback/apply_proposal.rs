@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::BTreeSet;
 
 use kp_model::{
@@ -9,8 +10,9 @@ use serde_json::{json, Value};
 
 use super::parser::{build_updated_fact_object, parse_kp_entry_marker};
 use super::tx_ops::{
-    follow_superseded_head, insert_standalone_writeback_fact_tx, supersede_fact_via_writeback_tx,
-    StandaloneWritebackFactSpec, WritebackTxEnv,
+    flush_pending_writeback_embeds, follow_superseded_head, insert_standalone_writeback_fact_tx,
+    supersede_fact_via_writeback_tx, PendingWritebackEmbed, StandaloneWritebackFactSpec,
+    WritebackTxEnv,
 };
 use super::{default_policy_from_env, is_base_fact_readable_by_actor, merge_route_policy};
 use crate::audit_log::is_fact_audit_visible;
@@ -54,9 +56,19 @@ impl Store {
         at: EpochMs,
     ) -> Result<Option<FactId>> {
         let redactor = shared_redactor()?;
+        let pending_embeds = RefCell::new(Vec::<PendingWritebackEmbed>::new());
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let wb_env = WritebackTxEnv {
+            library_id: &self.library_id,
+            actor,
+            at,
+            tokenizer: &self.tokenizer,
+            embedder_enabled: self.embedder.is_enabled(),
+            embedder_allows_raw_only: self.embedder.allows_raw_only(),
+            pending_embeds: &pending_embeds,
+        };
         let caller_role = require_active_member_role_tx(&tx, actor)?;
         let is_admin = matches!(caller_role, MemberRole::Owner | MemberRole::Maintainer);
 
@@ -168,13 +180,6 @@ impl Store {
                                 &redacted_claim,
                                 &orig_policy,
                             )? {
-                                let wb_env = WritebackTxEnv {
-                                    library_id: &self.library_id,
-                                    actor,
-                                    at,
-                                    tokenizer: &self.tokenizer,
-                                    embedder: self.embedder.as_ref(),
-                                };
                                 let update = supersede_fact_via_writeback_tx(
                                     &tx,
                                     &wb_env,
@@ -185,13 +190,6 @@ impl Store {
                                 )?;
                                 Some(update.new_fact_id)
                             } else {
-                                let wb_env = WritebackTxEnv {
-                                    library_id: &self.library_id,
-                                    actor,
-                                    at,
-                                    tokenizer: &self.tokenizer,
-                                    embedder: self.embedder.as_ref(),
-                                };
                                 let new_id = insert_standalone_writeback_fact_tx(
                                     &tx,
                                     &wb_env,
@@ -224,13 +222,6 @@ impl Store {
                                     "kp.core.note".to_owned(),
                                     Value::String(redacted_claim.clone()),
                                 )
-                            };
-                            let wb_env = WritebackTxEnv {
-                                library_id: &self.library_id,
-                                actor,
-                                at,
-                                tokenizer: &self.tokenizer,
-                                embedder: self.embedder.as_ref(),
                             };
                             let new_id = insert_standalone_writeback_fact_tx(
                                 &tx,
@@ -267,13 +258,6 @@ impl Store {
                             default_policy,
                         );
                         let self_aud = AudienceSpec::Explicit(BTreeSet::from([actor.clone()]));
-                        let wb_env = WritebackTxEnv {
-                            library_id: &self.library_id,
-                            actor,
-                            at,
-                            tokenizer: &self.tokenizer,
-                            embedder: self.embedder.as_ref(),
-                        };
                         let new_id = insert_standalone_writeback_fact_tx(
                             &tx,
                             &wb_env,
@@ -349,13 +333,6 @@ impl Store {
                 }
                 let policy = merge_route_policy(payload_policy.as_ref(), default_policy);
                 let self_aud = AudienceSpec::Explicit(BTreeSet::from([actor.clone()]));
-                let wb_env = WritebackTxEnv {
-                    library_id: &self.library_id,
-                    actor,
-                    at,
-                    tokenizer: &self.tokenizer,
-                    embedder: self.embedder.as_ref(),
-                };
                 let new_id = insert_standalone_writeback_fact_tx(
                     &tx,
                     &wb_env,
@@ -399,6 +376,11 @@ impl Store {
             ],
         )?;
         tx.commit()?;
+        flush_pending_writeback_embeds(
+            &mut self.db,
+            self.embedder.as_ref(),
+            &pending_embeds.into_inner(),
+        )?;
         self.sync_skills_now()?;
         Ok(result_fact_id)
     }
