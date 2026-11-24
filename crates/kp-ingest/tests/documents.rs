@@ -166,7 +166,11 @@ fn repeated_slide_and_sheet_relationship_targets_expand_once() -> Result {
         let bytes = archive_parts(&[(manifest, manifest_xml.as_bytes()), (rels, rels_xml.as_bytes()), (part, part_xml.as_bytes())])?;
         let doc = parse(Path::new(&format!("repeated.{extension}")), &bytes)?;
         assert_eq!(doc.chunks.len(), 1);
-        assert_eq!(doc.chunks[0].body, "once");
+        if extension == "pptx" {
+            assert_eq!(doc.chunks[0].body, "once");
+        } else {
+            assert_eq!(doc.chunks[0].body, "| once |\n| --- |");
+        }
     }
     Ok(())
 }
@@ -265,7 +269,7 @@ fn fallback_worksheet_names_are_ordered_numerically() -> Result {
             .iter()
             .map(|c| c.body.as_str())
             .collect::<Vec<_>>(),
-        ["1", "2", "10"]
+        ["| 1 |\n| --- |", "| 2 |\n| --- |", "| 10 |\n| --- |"]
     );
     assert_eq!(
         doc.chunks[1].anchor.sheet.as_deref(),
