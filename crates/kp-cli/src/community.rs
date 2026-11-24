@@ -102,8 +102,7 @@ pub async fn run(cli: &Cli, command: &CommunityCommand) -> Result<()> {
             .clone()
             .unwrap_or_else(|| store.owner_actor().clone());
         let eval_at = requested.map(EpochMs).unwrap_or(at);
-        let resolved =
-            crate::mcp::resolve_visible_or_raw_fact_id(&store, &actor, eval_at, fact_id.as_str())?;
+        let resolved = store.resolve_visible_or_raw_fact_id(&actor, eval_at, fact_id.as_str())?;
         let proof = kp_derive::why::why(&store, &resolved, &actor, eval_at)?;
         output(cli.json, &proof, &serde_json::to_string_pretty(&proof)?)?;
         return Ok(());

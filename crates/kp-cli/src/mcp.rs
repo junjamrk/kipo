@@ -377,24 +377,5 @@ pub(crate) fn resolve_visible_or_raw_fact_id(
     at: EpochMs,
     value: &str,
 ) -> Result<FactId> {
-    let lib_prefix = format!("{}:fact-", store.library_id());
-    let candidate = value.strip_prefix(&lib_prefix).unwrap_or(value);
-    let parsed: FactId = candidate.parse()?;
-    let mut doc_keys = vec![format!("fact-{parsed}")];
-    let alt_id = candidate
-        .strip_prefix("fact_")
-        .and_then(|unprefixed| unprefixed.parse::<FactId>().ok());
-    if let Some(alt) = &alt_id {
-        doc_keys.push(format!("fact-{alt}"));
-    }
-    let meta = store.prompt_candidate_meta(actor, at, &doc_keys)?;
-    if meta.contains_key(&doc_keys[0]) {
-        return Ok(parsed);
-    }
-    if let Some(alt) = alt_id {
-        if meta.contains_key(&format!("fact-{alt}")) {
-            return Ok(alt);
-        }
-    }
-    Ok(parsed)
+    Ok(store.resolve_visible_or_raw_fact_id(actor, at, value)?)
 }

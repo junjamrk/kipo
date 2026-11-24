@@ -105,6 +105,9 @@ pub(crate) fn is_fact_audit_visible(
     match &fact.access {
         FactAccess::Base { .. } => is_base_fact_readable_by_actor(graph, fact, viewer),
         FactAccess::Derived { .. } => {
+            if !kp_model::derived_scope_allows(fact, viewer) {
+                return false;
+            }
             if evaluated_live.facts.contains(&fact.id) {
                 return true;
             }

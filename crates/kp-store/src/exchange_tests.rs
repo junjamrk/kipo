@@ -406,6 +406,13 @@ fn visible_chunk_count_matches_retrieval_snapshot_across_source_scope_narrowing(
     })?;
     assert_eq!(store.exchange_visible_chunk_count(&"alice".parse()?)?, 1);
     assert_eq!(store.exchange_visible_chunk_count(&"bob".parse()?)?, 0);
+
+    // Once the raw_source is superseded by a newer revision, the superseded chunks are excluded.
+    store.db.execute(
+        "UPDATE raw_sources SET superseded_by_source = 'src_newer' WHERE source_id = ?1",
+        [stored.source_id.as_str()],
+    )?;
+    assert_eq!(store.exchange_visible_chunk_count(&"alice".parse()?)?, 0);
     Ok(())
 }
 

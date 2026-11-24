@@ -172,6 +172,32 @@ impl Store {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn search_snapshot_with_query_vector(
+        &self,
+        viewer: &ActorId,
+        at: EpochMs,
+        query: &str,
+        query_vector: Option<&[f32]>,
+        deep: bool,
+        candidate_limit: usize,
+        embedder: &(impl Embedder + ?Sized),
+    ) -> Result<RetrievalSnapshot> {
+        if !deep {
+            self.candidate_retrieval_snapshot_with_query_vector_internal(
+                viewer,
+                at,
+                query,
+                query_vector,
+                candidate_limit,
+                self.mode == kp_model::LibraryMode::Personal,
+                embedder,
+            )
+        } else {
+            self.retrieval_snapshot_with_embedder(viewer, at, embedder)
+        }
+    }
+
     /// Evaluates semiring + `source_scopes` visibility via reverse-DFS only for `candidate_ids`.
     pub fn filter_visible_fact_ids(
         &self,

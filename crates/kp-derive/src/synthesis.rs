@@ -4,7 +4,7 @@ use std::pin::Pin;
 
 use kp_model::{
     derived_fact, justification, ActorId, ContentHash, DerivationMode, EpochMs, Fact, FactId,
-    FactKind, KpError,
+    FactKind, KpError, ModelRoutePolicy,
 };
 use kp_store::{Result, Store};
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,13 @@ pub struct SynthesisClaim {
 }
 
 pub trait ScopedSynthesizer: Send + Sync {
+    /// Returns true only for purely local, zero-egress synthesizers (such as
+    /// [`StructuredSynthesizer`]). Defaults to `false` (fail-closed) so `RawOnly` facts
+    /// are excluded before any external or model-backed synthesizer is invoked.
+    fn allows_raw_only(&self) -> bool {
+        false
+    }
+
     fn synthesize<'a>(
         &'a self,
         input: &'a SynthesisInput,
@@ -38,6 +45,10 @@ pub trait ScopedSynthesizer: Send + Sync {
 
 pub struct StructuredSynthesizer;
 impl ScopedSynthesizer for StructuredSynthesizer {
+    fn allows_raw_only(&self) -> bool {
+        true
+    }
+
     fn synthesize<'a>(
         &'a self,
         input: &'a SynthesisInput,
@@ -86,6 +97,23 @@ pub async fn synthesize_scoped(
     for actor in target_audience.iter().skip(1) {
         let visible = graph.evaluate(actor, at);
         ids.retain(|id| visible.facts.contains(id));
+    }
+    if !synthesizer.allows_raw_only() {
+        let mut allowed_ids = BTreeSet::new();
+        let mut stripped_raw_only = false;
+        for id in &ids {
+            if let Some(fact) = graph.facts.get(id) {
+                if store.fact_effective_route_policy(fact)? == ModelRoutePolicy::RawOnly {
+                    stripped_raw_only = true;
+                } else {
+                    allowed_ids.insert(id.clone());
+                }
+            }
+        }
+        ids = allowed_ids;
+        if stripped_raw_only && ids.is_empty() {
+            return Ok(Vec::new());
+        }
     }
     let input = SynthesisInput {
         query: query.into(),

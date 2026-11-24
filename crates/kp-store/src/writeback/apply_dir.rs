@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
@@ -14,9 +15,10 @@ use super::parser::{
     scan_markdown_directory, FreeformCandidate, SourcesMdExtractCtx,
 };
 use super::tx_ops::{
-    enqueue_writeback_proposal_tx, evaluate_baseline_view, follow_superseded_head,
-    query_projection_page_tx, supersede_fact_via_writeback_tx, was_statically_permitted_for_viewer,
-    WritebackProposalContext, WritebackProposalInput, WritebackTxEnv,
+    enqueue_writeback_proposal_tx, evaluate_baseline_view, flush_pending_writeback_embeds,
+    follow_superseded_head, query_projection_page_tx, supersede_fact_via_writeback_tx,
+    was_statically_permitted_for_viewer, PendingWritebackEmbed, WritebackProposalContext,
+    WritebackProposalInput, WritebackTxEnv,
 };
 use super::{
     default_policy_from_env, is_base_fact_readable_by_actor, merge_route_policy, ApplyReport,
@@ -197,12 +199,15 @@ impl Store {
             current_seq: current_max_seq,
             at,
         };
+        let pending_embeds = RefCell::new(Vec::<PendingWritebackEmbed>::new());
         let wb_env = WritebackTxEnv {
             library_id: &self.library_id,
             actor: viewer,
             at,
             tokenizer: &self.tokenizer,
-            embedder: self.embedder.as_ref(),
+            embedder_enabled: self.embedder.is_enabled(),
+            embedder_allows_raw_only: self.embedder.allows_raw_only(),
+            pending_embeds: &pending_embeds,
         };
 
         if baseline_conflict {
@@ -831,6 +836,11 @@ impl Store {
             && deleted_fact_ids.is_empty()
             && enqueued_proposals.is_empty();
         tx.commit()?;
+        flush_pending_writeback_embeds(
+            &mut self.db,
+            self.embedder.as_ref(),
+            &pending_embeds.into_inner(),
+        )?;
         if !updated_facts.is_empty() || !deleted_fact_ids.is_empty() {
             self.sync_skills_now()?;
         }

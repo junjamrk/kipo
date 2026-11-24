@@ -189,3 +189,100 @@ fn event_collision_normalizes_subject_tags_and_object_triggers_against_entities(
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn external_synthesizer_excludes_raw_only_facts_and_makes_zero_calls_when_only_raw_only(
+) -> Result {
+    use std::sync::{Arc, Mutex};
+
+    struct RecordingExternalSynthesizer {
+        seen_ids: Arc<Mutex<Vec<Vec<String>>>>,
+    }
+
+    impl kp_derive::ScopedSynthesizer for RecordingExternalSynthesizer {
+        fn synthesize<'a>(
+            &'a self,
+            input: &'a kp_derive::SynthesisInput,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = kp_store::Result<Vec<kp_derive::SynthesisClaim>>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            let ids: Vec<String> = input
+                .facts()
+                .iter()
+                .map(|f| f.id.as_str().to_owned())
+                .collect();
+            if let Ok(mut guard) = self.seen_ids.lock() {
+                guard.push(ids.clone());
+            }
+            Box::pin(async move {
+                let first = ids.first().cloned().unwrap_or_default();
+                Ok(vec![kp_derive::SynthesisClaim {
+                    text: format!("synthesized [premise:{first}]"),
+                    unverified_gaps: Vec::new(),
+                }])
+            })
+        }
+    }
+
+    let (_dir, mut store) = library()?;
+    let mut raw_only = fact(
+        "raw-secret",
+        "payroll",
+        "salary",
+        "confidential-raw-only",
+        FactKind::Observation,
+        &["alice"],
+    )?;
+    raw_only.tags.insert("kp.raw_only".into());
+    store.insert_fact(&raw_only)?;
+
+    let seen_ids = Arc::new(Mutex::new(Vec::new()));
+    let synth = RecordingExternalSynthesizer {
+        seen_ids: Arc::clone(&seen_ids),
+    };
+    let audience = BTreeSet::from(["alice".parse()?]);
+
+    let none_ids = synthesize_scoped(
+        &mut store,
+        &"alice".parse()?,
+        &audience,
+        "payroll",
+        EpochMs(1),
+        &synth,
+    )
+    .await?;
+    assert!(none_ids.is_empty());
+    assert!(
+        seen_ids.lock().map_err(|_| "lock")?.is_empty(),
+        "external synthesizer must receive 0 calls when all visible facts are RawOnly"
+    );
+
+    let normal = fact(
+        "public-note",
+        "release",
+        "status",
+        "ready",
+        FactKind::Observation,
+        &["alice"],
+    )?;
+    store.insert_fact(&normal)?;
+
+    let created = synthesize_scoped(
+        &mut store,
+        &"alice".parse()?,
+        &audience,
+        "release",
+        EpochMs(1),
+        &synth,
+    )
+    .await?;
+    assert_eq!(created.len(), 1);
+    let calls = seen_ids.lock().map_err(|_| "lock")?.clone();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0], vec![normal.id.as_str().to_owned()]);
+    Ok(())
+}

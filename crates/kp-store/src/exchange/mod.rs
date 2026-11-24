@@ -312,7 +312,8 @@ impl Store {
             "SELECT COUNT(*)
              FROM chunks c
              JOIN raw_sources s ON s.source_id = c.source_id AND s.content_sha256 = c.source_sha256
-             WHERE NOT EXISTS (SELECT 1 FROM tombstones t WHERE t.tombstone_id = c.source_id)
+             WHERE s.superseded_by_source IS NULL
+               AND NOT EXISTS (SELECT 1 FROM tombstones t WHERE t.tombstone_id = c.source_id)
                AND EXISTS (
                    SELECT 1 FROM json_each(c.readable_by_json) a
                    WHERE a.value = ?1
