@@ -599,7 +599,7 @@ async fn pre_tool_is_silent_by_default_and_emits_ask_for_owner_guards_and_policy
 ) -> Result {
     let (dir, mut store) = library()?;
     store.add_member("bob".parse()?, MemberRole::Member, EpochMs(0))?;
-    store.add_member("pm_li".parse()?, MemberRole::Member, EpochMs(0))?;
+    store.add_member("pm_li".parse()?, MemberRole::Maintainer, EpochMs(0))?;
     let mut make = |author: &str, value: Value, audience: &[&str]| -> Result {
         let options = kp_derive::FunnelOptions {
             actor: author.parse()?,

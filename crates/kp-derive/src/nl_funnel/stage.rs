@@ -425,7 +425,26 @@ fn stage_extracted_atoms_inner(
             continue;
         }
 
+        let speaker_tier = if atom_speaker.as_str().starts_with("ext.") {
+            TrustTier::ExternalUntrusted
+        } else {
+            TrustTier::ToolOrModelVerified
+        };
+        let effective_trust_tier = options.source_trust_floor.weakest(speaker_tier);
+
         let effective_kind = effective_atom_kind(atom);
+        if effective_trust_tier == TrustTier::ExternalUntrusted
+            && !matches!(effective_kind, FactKind::Observation | FactKind::FactSlot)
+        {
+            outcome.rejected_atoms.push(RejectedModelAtom {
+                claim_text: atom.claim_text.clone(),
+                chunk_id: atom.quote.chunk_id.clone(),
+                verbatim_quote: atom.quote.verbatim_quote.clone(),
+                reason: "untrusted source or unconfirmed external speaker restricted to observation or fact_slot"
+                    .to_owned(),
+            });
+            continue;
+        }
         if effective_kind == FactKind::Event && atom.condition_concept.is_none() {
             outcome.rejected_atoms.push(RejectedModelAtom {
                 claim_text: atom.claim_text.clone(),
@@ -857,7 +876,7 @@ fn stage_extracted_atoms_inner(
             tags: BTreeSet::new(),
             author: atom_speaker.clone(),
             ingested_by,
-            trust_tier: TrustTier::ToolOrModelVerified,
+            trust_tier: effective_trust_tier,
             access: FactAccess::Base {
                 audience: fact_audience,
                 stamp: BitemporalStamp {

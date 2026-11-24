@@ -9,16 +9,6 @@ use serde_json::Value;
 use crate::facts::read_graph;
 use crate::{Result, Store, StoreError};
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UnminedDreamSource {
-    pub source_id: SourceId,
-    pub uri: String,
-    pub media_type: String,
-    pub modality: SourceModality,
-    pub source_scope_id: Option<SourceScopeId>,
-    pub captured_at: EpochMs,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AnchoredSourceChunk {
     pub chunk_id: String,
@@ -173,24 +163,12 @@ impl Store {
     /// Lists non-tombstoned session/transcript `SourceId`s currently readable by `actor` that have
     /// not yet been mined by `kp dream` for `actor`.
     pub fn unmined_session_source_ids(&self, actor: &ActorId) -> Result<Vec<SourceId>> {
-        Ok(self
-            .unmined_dream_sources(actor)?
-            .into_iter()
-            .filter(|s| s.modality == SourceModality::AgentSession)
-            .map(|s| s.source_id)
-            .collect())
-    }
-
-    /// Lists all non-tombstoned, non-superseded `raw_sources` across sessions, chat logs,
-    /// documents, web links, and timed audio/video transcripts readable by `actor` and not yet
-    /// mined by `kp dream`.
-    pub fn unmined_dream_sources(&self, actor: &ActorId) -> Result<Vec<UnminedDreamSource>> {
         if self.member_role(actor)?.is_none() {
             return Err(StoreError::PermissionDenied);
         }
         let graph = read_graph(&self.db)?;
         let mut stmt = self.db.prepare(
-            "SELECT s.source_id, s.uri, s.media_type, s.visibility_scope, s.source_scope_id, s.captured_at
+            "SELECT s.source_id, s.uri, s.media_type, s.visibility_scope, s.source_scope_id
              FROM raw_sources s
              WHERE s.superseded_by_source IS NULL
                AND s.uri NOT LIKE 'dream-session:%'
@@ -207,16 +185,18 @@ impl Store {
             let sid_str: String = row.get(0)?;
             let uri: String = row.get(1)?;
             let media_type: String = row.get(2)?;
+            if SourceModality::infer(&uri, &media_type) != SourceModality::AgentSession {
+                continue;
+            }
             let vis_raw: String = row.get(3)?;
             let scope_opt: Option<String> = row.get(4)?;
-            let captured_at = EpochMs(row.get::<_, i64>(5)?);
             let Ok(vis) = serde_json::from_str::<AudienceSpec>(&vis_raw) else {
                 continue;
             };
             if !vis.allows(actor, &graph.members) {
                 continue;
             }
-            let parsed_scope = if let Some(scope_str) = scope_opt.filter(|s| !s.trim().is_empty()) {
+            if let Some(scope_str) = scope_opt.filter(|s| !s.trim().is_empty()) {
                 let Ok(scope_id) = scope_str.parse::<SourceScopeId>() else {
                     continue;
                 };
@@ -226,27 +206,16 @@ impl Store {
                 if !scope_aud.allows(actor, &graph.members) {
                     continue;
                 }
-                Some(scope_id)
-            } else {
-                None
-            };
+            }
             if let Ok(source_id) = sid_str.parse::<SourceId>() {
-                let modality = SourceModality::infer(&uri, &media_type);
-                out.push(UnminedDreamSource {
-                    source_id,
-                    uri,
-                    media_type,
-                    modality,
-                    source_scope_id: parsed_scope,
-                    captured_at,
-                });
+                out.push(source_id);
             }
         }
         Ok(out)
     }
 
     /// Loads ordered chunks of `source_id` together with their full persisted `AnchorSpec`
-    /// (`start_ms`, `end_ms`, `page`, `slide`, `sheet`, `file_path`, `symbol`, etc.).
+    /// (`page`, `slide`, `sheet`, `file_path`, `symbol`, etc.).
     pub fn source_anchored_chunks(&self, source_id: &SourceId) -> Result<Vec<AnchoredSourceChunk>> {
         let mut stmt = self.db.prepare(
             "SELECT chunk_id, heading, body, anchor_json
@@ -275,11 +244,31 @@ impl Store {
         Ok(out)
     }
 
-    /// Fast count of unprocessed `rsi_episodes` plus unmined `raw_sources` visible to `actor`.
+    /// Counts unfinished non-`raw_only` jobs in `extraction_queue`.
+    pub fn pending_extraction_job_count(&self) -> Result<usize> {
+        let count: i64 = self.db.query_row(
+            "SELECT count(*) FROM extraction_queue
+             WHERE status IN ('pending', 'leased', 'paused_quota')
+               AND NOT EXISTS (
+                   SELECT 1 FROM change_log cl
+                   WHERE cl.op = 'raw_only_source' AND cl.target_id = extraction_queue.source_id
+               )",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(usize::try_from(count).unwrap_or(0))
+    }
+
+    /// Fast count of pending `extraction_queue` jobs, unprocessed `rsi_episodes`, and unmined
+    /// `AgentSession` sources visible to `actor`.
     pub fn pending_dream_work_count(&self, actor: &ActorId) -> Result<usize> {
+        if self.member_role(actor)?.is_none() {
+            return Err(StoreError::PermissionDenied);
+        }
+        let jobs = self.pending_extraction_job_count()?;
         let ep = self.pending_episodes(actor)?.len();
-        let src = self.unmined_dream_sources(actor)?.len();
-        Ok(ep.saturating_add(src))
+        let sessions = self.unmined_session_source_ids(actor)?.len();
+        Ok(jobs.saturating_add(ep).saturating_add(sessions))
     }
 
     /// Marks `source_id` as mined for `actor` in `change_log(op = 'dream_mined_source')`.

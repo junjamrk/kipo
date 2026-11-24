@@ -6,9 +6,7 @@ use kp_model::{AnchorSpec, ContentHash, ValidityWindow};
 use kp_store::{ChunkInput, RawSourceInput, Remembered, Store, StoredSource};
 use serde::Serialize;
 
-use crate::{
-    code_intel, office, subtitles, text, web_and_media, IngestError, Result, MAX_INPUT_BYTES,
-};
+use crate::{code_intel, office, text, web_and_media, IngestError, Result, MAX_INPUT_BYTES};
 
 pub use crate::web_and_media::add_url;
 
@@ -47,12 +45,9 @@ pub fn handles(path: &Path) -> bool {
                 | "pptx"
                 | "xlsx"
                 | "pdf"
-                | "vtt"
-                | "srt"
-                | "lrc"
                 | "html"
                 | "htm"
-        ) || web_and_media::is_media_extension(&e.to_ascii_lowercase())
+        )
     })
 }
 
@@ -81,20 +76,6 @@ pub fn parse(path: &Path, bytes: &[u8]) -> Result<Document> {
         "md" | "mdx" | "markdown" => Document {
             media_type: "text/markdown",
             chunks: text::markdown_bytes(bytes)?,
-            needs_ocr: false,
-        },
-        "vtt" | "srt" => Document {
-            media_type: if extension == "vtt" {
-                "text/vtt"
-            } else {
-                "application/x-subrip"
-            },
-            chunks: subtitles::parse(&text::decode(bytes)?)?,
-            needs_ocr: false,
-        },
-        "lrc" => Document {
-            media_type: "application/x-lrc",
-            chunks: subtitles::parse_lrc(&text::decode(bytes)?)?,
             needs_ocr: false,
         },
         "html" | "htm" => Document {
@@ -134,34 +115,16 @@ pub fn parse(path: &Path, bytes: &[u8]) -> Result<Document> {
         }
         "txt" | "csv" | "json" => {
             let source = text::decode(bytes)?;
-            if extension == "json" {
-                if let Some(asr_chunks) = subtitles::try_parse_asr_json(&source) {
-                    Document {
-                        media_type: "application/x-whisper+json",
-                        chunks: asr_chunks,
-                        needs_ocr: false,
-                    }
-                } else {
-                    Document {
-                        media_type: "application/json",
-                        chunks: vec![plain_chunk(&source)?],
-                        needs_ocr: false,
-                    }
-                }
-            } else {
-                Document {
-                    media_type: if extension == "csv" {
-                        "text/csv"
-                    } else {
-                        "text/plain"
-                    },
-                    chunks: vec![plain_chunk(&source)?],
-                    needs_ocr: false,
-                }
+            let media_type = match extension.as_str() {
+                "json" => "application/json",
+                "csv" => "text/csv",
+                _ => "text/plain",
+            };
+            Document {
+                media_type,
+                chunks: vec![plain_chunk(&source)?],
+                needs_ocr: false,
             }
-        }
-        ext if web_and_media::is_media_extension(ext) => {
-            web_and_media::parse_media_sidecar(path, ext)?.0
         }
         _ => return Err(IngestError::Invalid("unsupported document format")),
     };
@@ -229,27 +192,8 @@ pub fn add_file(
     options: &FunnelOptions,
     extractor: Option<&dyn Extractor>,
 ) -> Result<AddedDocument> {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    let (bytes, document) = if web_and_media::is_media_extension(&ext) {
-        let (mut doc, sidecar_bytes) = web_and_media::parse_media_sidecar(path, &ext)?;
-        let path_str = path.to_string_lossy().into_owned();
-        for chunk in &mut doc.chunks {
-            chunk.anchor.file_path = Some(path_str.clone());
-        }
-        let stored_bytes = match sidecar_bytes {
-            Some(sb) => sb,
-            None => crate::read_file(path)?,
-        };
-        (stored_bytes, doc)
-    } else {
-        let bytes = crate::read_file(path)?;
-        let doc = parse(path, &bytes)?;
-        (bytes, doc)
-    };
+    let bytes = crate::read_file(path)?;
+    let document = parse(path, &bytes)?;
     let uri = path.to_string_lossy().into_owned();
     let key = format!("source:{uri}:{}", ContentHash::digest(&bytes)).parse()?;
     let mut inputs = Vec::new();

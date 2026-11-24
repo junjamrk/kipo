@@ -563,7 +563,43 @@ pub(crate) async fn drain_for_public_ingest(
         force: false,
         at: None,
     };
-    run_extract_inner(store, actor, &args, at, false).await
+    run_extract_inner(store, actor, &args, at, false, None).await
+}
+
+/// Drains queued extraction jobs during `kp dream` Phase 1 using the lease-fenced extraction loop.
+pub(crate) async fn drain_for_dream(
+    store: &mut Store,
+    actor: &ActorId,
+    at: EpochMs,
+    llm_override: Option<Arc<dyn LlmClient>>,
+) -> Result<Value> {
+    if store.pending_extraction_job_count()? == 0 {
+        return Ok(json!({
+            "jobs_processed": 0,
+            "jobs_paused_quota": 0,
+            "created_facts": [],
+            "superseded_facts": [],
+            "dropped_rejected": [],
+            "derived_warnings": 0,
+            "superseded_contradicted_events": [],
+            "emitted_reviews": [],
+        }));
+    }
+    let args = ExtractArgs {
+        runner: RunnerKind::Auto,
+        program: None,
+        model: None,
+        policy: "auto".to_owned(),
+        remaining_quota_pct: None,
+        min_quota_pct: 10,
+        max_jobs: 64,
+        text: None,
+        file: None,
+        audience: None,
+        force: false,
+        at: Some(at.0),
+    };
+    run_extract_inner(store, actor, &args, at, false, llm_override).await
 }
 
 /// Drains queued background extraction jobs inside `kp daemon`, routing per `job.model_policy` and
@@ -598,7 +634,7 @@ pub(crate) async fn drain_pending_extractions_for_daemon_with_embedder(
         force: false,
         at: None,
     };
-    let out = run_extract_inner(&mut store, &actor, &args, at, true)
+    let out = run_extract_inner(&mut store, &actor, &args, at, true, None)
         .await
         .map_err(|e| e.to_string())?;
     let paused = out
@@ -889,7 +925,7 @@ async fn run_extract(
     args: &ExtractArgs,
     at: EpochMs,
 ) -> Result<Value> {
-    run_extract_inner(store, actor, args, at, false).await
+    run_extract_inner(store, actor, args, at, false, None).await
 }
 
 async fn run_extract_inner(
@@ -898,6 +934,7 @@ async fn run_extract_inner(
     args: &ExtractArgs,
     at: EpochMs,
     is_daemon_background: bool,
+    llm_override: Option<Arc<dyn LlmClient>>,
 ) -> Result<Value> {
     crate::providers_cli::attach_ready_embedder(store);
 
@@ -906,7 +943,9 @@ async fn run_extract_inner(
     let has_explicit_cli_runner =
         args.program.is_some() || !matches!(args.runner, RunnerKind::Auto);
     let explicit_route_policy = parse_cli_route_policy(pol_trim)?;
-    let explicit_host_llm: Option<Arc<dyn LlmClient>> = if has_explicit_cli_runner {
+    let explicit_host_llm: Option<Arc<dyn LlmClient>> = if let Some(injected) = llm_override {
+        Some(injected)
+    } else if has_explicit_cli_runner {
         let host_cfg = resolve_host_cli_config(
             args.runner,
             args.program.as_deref(),
@@ -1218,12 +1257,13 @@ async fn run_extract_inner(
             }
         };
 
-        let (source_aud, source_scope_id, raw_chunks) =
+        let (source_aud, source_scope_id, source_uri, raw_chunks) =
             match store.extraction_source_context(&job.source_id, &job.chunk_ids)? {
-                Some(ctx) => (ctx.readable_by, ctx.source_scope_id, ctx.chunks),
+                Some(ctx) => (ctx.readable_by, ctx.source_scope_id, ctx.uri, ctx.chunks),
                 None => (
                     AudienceSpec::Explicit(BTreeSet::from([job.author.clone()])),
                     None,
+                    String::new(),
                     Vec::new(),
                 ),
             };
@@ -1374,6 +1414,7 @@ async fn run_extract_inner(
             audience: source_aud,
             at: job.reference_time,
             route_policy: job_policy,
+            source_trust_floor: NlFunnelOptions::trust_floor_for_uri(&source_uri),
             source_origin: source_scope_id.map(|scope_id| SourceOriginMeta {
                 speaker: job.author.clone(),
                 ingested_by: actor.clone(),

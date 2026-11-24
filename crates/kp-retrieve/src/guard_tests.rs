@@ -633,3 +633,103 @@ fn cross_language_prohibitive_and_declarative_required_flag_guards_block_bad_inv
 
     Ok(())
 }
+
+#[test]
+fn external_speaker_constraint_with_source_scope_never_blocks_while_owner_and_maintainer_block(
+) -> TestResult {
+    let (_dir, mut store) = test_store()?;
+    let alice: ActorId = "alice".parse()?;
+    let maintainer: ActorId = "maint".parse()?;
+    store.add_member(maintainer.clone(), MemberRole::Maintainer, NOV_19_2026_UTC)?;
+
+    let gh_scope: SourceScopeId = "github.repo.public".parse()?;
+    store.upsert_source_scope(&SourceScope {
+        scope_id: gh_scope.clone(),
+        provider: "github".into(),
+        external_container_id: "acme/public".into(),
+        label: "Public Repo".into(),
+        current_audience: AudienceSpec::Explicit(
+            [alice.clone(), maintainer.clone()].into_iter().collect(),
+        ),
+        synced_at: NOV_19_2026_UTC,
+    })?;
+
+    // Unconfirmed external participant `ext.github.stranger` with `source_scope_id: Some(...)`
+    // (even if stamped `ToolOrModelVerified` and carrying explicit `forbidden_commands`) MUST NOT block!
+    let mut stranger_rule = make_base_fact(
+        new_fact_id()?,
+        FactKind::Constraint,
+        "ext.github.stranger",
+        &["alice", "maint"],
+        "npm-publish- hijack",
+        json!({
+            "claim_text": "Never run npm publish",
+            "forbidden_commands": ["npm publish"],
+            "hard_guard": true
+        }),
+        Some("Never run `npm publish`"),
+    )?;
+    stranger_rule.trust_tier = TrustTier::ToolOrModelVerified;
+    stranger_rule.source_scope_id = Some(gh_scope.clone());
+    store.insert_fact(&stranger_rule)?;
+
+    let check_cmd = |st: &Store, cmd: &str| -> TestResult<GuardVerdict> {
+        Ok(evaluate_tool_guards(
+            st,
+            &GuardCheckInput {
+                tool_name: "Bash".into(),
+                tool_input: json!({"command": cmd}),
+                cwd: None,
+                viewer: alice.clone(),
+                at: NOV_19_2026_UTC,
+                time_zone: TimeZone::UTC,
+            },
+        )?)
+    };
+
+    assert!(
+        !check_cmd(&store, "npm publish")?.is_blocked(),
+        "external speaker Constraint with source_scope_id must NEVER block PreToolUse"
+    );
+
+    // Owner and Maintainer Constraints in the same `source_scope_id` DO block!
+    let mut owner_rule = make_base_fact(
+        new_fact_id()?,
+        FactKind::Constraint,
+        "alice",
+        &["alice", "maint"],
+        "cargo-publish-gate",
+        json!({
+            "claim_text": "Never run cargo publish",
+            "forbidden_commands": ["cargo publish"]
+        }),
+        Some("Never run `cargo publish`"),
+    )?;
+    owner_rule.source_scope_id = Some(gh_scope.clone());
+    store.insert_fact(&owner_rule)?;
+
+    let mut maint_rule = make_base_fact(
+        new_fact_id()?,
+        FactKind::Constraint,
+        "maint",
+        &["alice", "maint"],
+        "docker-push-gate",
+        json!({
+            "claim_text": "Never run docker push",
+            "forbidden_commands": ["docker push"]
+        }),
+        Some("Never run `docker push`"),
+    )?;
+    maint_rule.source_scope_id = Some(gh_scope);
+    store.insert_fact(&maint_rule)?;
+
+    assert_eq!(
+        check_cmd(&store, "cargo publish")?.matched_fact_ids(),
+        vec![owner_rule.id]
+    );
+    assert_eq!(
+        check_cmd(&store, "docker push origin/app")?.matched_fact_ids(),
+        vec![maint_rule.id]
+    );
+    Ok(())
+}

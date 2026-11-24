@@ -186,6 +186,7 @@ fn extract_from_public_source(
         audience: ctx.readable_by,
         at,
         route_policy: ModelRoutePolicy::HostCli,
+        source_trust_floor: NlFunnelOptions::trust_floor_for_uri(&ctx.uri),
         source_origin: scope_id.map(|sid| SourceOriginMeta {
             speaker: speaker.clone(),
             ingested_by: ingested_by.clone(),

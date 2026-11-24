@@ -22,33 +22,29 @@ fn markdown_uses_heading_breadcrumbs_and_exact_utf8_offsets() -> Result {
 }
 
 #[test]
-fn subtitles_preserve_cue_identifiers_line_spans_and_milliseconds() -> Result {
-    for (name, source) in [
-        (
-            "talk.vtt",
-            "WEBVTT\n\ncue-a\n00:01.250 --> 00:02.750 align:start\nHello\nworld\n\n",
-        ),
-        (
-            "talk.srt",
-            "1\n00:00:01,250 --> 00:00:02,750\nHello\nworld\n\n",
-        ),
+fn subtitle_and_media_extensions_fail_with_unsupported_document_format() {
+    for name in [
+        "talk.vtt",
+        "talk.srt",
+        "lyrics.lrc",
+        "demo.mp4",
+        "voice.m4a",
+        "podcast.mp3",
     ] {
-        let doc = parse(Path::new(name), source.as_bytes())?;
-        assert_eq!(doc.chunks.len(), 1);
-        assert_eq!(doc.chunks[0].body, "Hello\nworld");
-        assert_eq!(doc.chunks[0].anchor.start_ms, Some(1250));
-        assert_eq!(doc.chunks[0].anchor.end_ms, Some(2750));
-        assert_eq!(
-            doc.chunks[0].anchor.start_line,
-            Some(if name.ends_with("vtt") { 3 } else { 1 })
-        );
-        assert_eq!(
-            doc.chunks[0].anchor.end_line,
-            Some(if name.ends_with("vtt") { 6 } else { 4 })
+        assert!(!kp_ingest::doc_router::handles(Path::new(name)), "{name}");
+        assert!(
+            matches!(
+                parse(
+                    Path::new(name),
+                    b"WEBVTT\n\n00:01.000 --> 00:02.000\ntext\n"
+                ),
+                Err(kp_ingest::IngestError::Invalid(
+                    "unsupported document format"
+                ))
+            ),
+            "{name}"
         );
     }
-    assert!(parse(Path::new("bad.vtt"), b"00:90.001 --> 00:91.002\nwrong\n").is_err());
-    Ok(())
 }
 
 fn archive(name: &str, bytes: &[u8]) -> Result<Vec<u8>> {

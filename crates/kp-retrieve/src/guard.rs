@@ -680,7 +680,6 @@ fn is_authorized_guard(
     }
 
     let author_is_privileged = &fact.author == owner
-        || fact.source_scope_id.is_some()
         || matches!(
             cand.author_role,
             Some(MemberRole::Owner | MemberRole::Maintainer)
@@ -734,10 +733,7 @@ fn is_hard_constraint(fact: &Fact) -> bool {
     if fact.kind == FactKind::ClosedNegative {
         return false;
     }
-    if fact.governed_scope.is_some()
-        || fact.source_scope_id.is_some()
-        || fact_action_concept_id(fact).is_some()
-    {
+    if fact.governed_scope.is_some() || fact_action_concept_id(fact).is_some() {
         return true;
     }
     let pred = fact.predicate.to_lowercase();

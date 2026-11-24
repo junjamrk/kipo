@@ -1,12 +1,16 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Subcommand;
 use kp_derive::DetectedGenerativeModel;
-use kp_ingest::dream::{dream, HttpDreamAttributor, LlmDreamAttributor, StructuredDreamAttributor};
-use kp_model::{ActorId, ContentHash, ContrastKind, EpochMs, FactId, FeedbackOutcome, SkillSlug};
+use kp_ingest::dream::{dream, LlmDreamAttributor, StructuredDreamAttributor};
+use kp_model::{
+    ActorId, ContentHash, ContrastKind, EpochMs, FactId, FeedbackOutcome, ModelRoutePolicy,
+    SkillSlug,
+};
 use kp_store::{Episode, Store};
 use serde_json::{json, Value};
 
@@ -22,14 +26,14 @@ pub enum RsiCommand {
         #[command(subcommand)]
         command: EpisodeCommand,
     },
-    /// Consolidate multi-source sessions, chats, documents, links, and media into governed facts and skills.
+    /// Consolidate queued multi-source extractions and session episodes into governed facts and skills.
     Dream {
         #[arg(long)]
         at: Option<i64>,
         /// Mine real session transcripts (.jsonl / .md files or directories) before running attribution.
         #[arg(long = "sessions", alias = "session")]
         sessions: Vec<PathBuf>,
-        #[arg(long, requires = "llm_model")]
+        #[arg(long, alias = "endpoint")]
         llm_url: Option<String>,
         #[arg(long, requires = "llm_url")]
         llm_model: Option<String>,
@@ -144,25 +148,30 @@ pub async fn run(cli: &Cli, command: &RsiCommand) -> Result<(), Box<dyn Error>> 
             let run_res = async {
                 let at = clock.map(EpochMs).unwrap_or(at);
                 crate::providers_cli::attach_ready_embedder(&mut store);
-                let policy = crate::governance::explicit_writeback_default_policy();
                 let mut path_sessions_mined = 0usize;
                 let mut path_episodes_mined = 0usize;
+                let mut precomputed_policy = None;
                 if !sessions.is_empty() {
+                    let policy = crate::governance::explicit_writeback_default_policy();
                     let mined = kp_ingest::session_miner::mine_session_paths(
                         &mut store, sessions, &actor, &policy, at,
                     )?;
                     path_sessions_mined = mined.sessions_scanned;
                     path_episodes_mined = mined.episodes_recorded;
+                    precomputed_policy = Some(policy);
                 }
                 let api_key = llm_key_env.as_ref().map(std::env::var).transpose()?;
                 let mut result = run_dream(
                     &mut store,
                     &actor,
                     at,
-                    llm_url.as_deref(),
-                    llm_model.as_deref(),
-                    api_key,
-                    *allow_cloud_llm,
+                    DreamLlmOptions {
+                        precomputed_policy,
+                        url: llm_url.as_deref(),
+                        model: llm_model.as_deref(),
+                        api_key,
+                        allow_cloud: *allow_cloud_llm,
+                    },
                 )
                 .await?;
                 result.sessions_mined += path_sessions_mined;
@@ -274,37 +283,74 @@ fn record_episode(
     Ok(json!({"episodes":count,"signal":if count == 0 { "NO_ENTRY" } else { "RECORDED" }}))
 }
 
+struct DreamLlmOptions<'a> {
+    precomputed_policy: Option<ModelRoutePolicy>,
+    url: Option<&'a str>,
+    model: Option<&'a str>,
+    api_key: Option<String>,
+    allow_cloud: bool,
+}
+
 async fn run_dream(
     store: &mut Store,
     actor: &ActorId,
     at: EpochMs,
-    url: Option<&str>,
-    model: Option<&str>,
-    api_key: Option<String>,
-    allow_cloud: bool,
+    opts: DreamLlmOptions<'_>,
 ) -> Result<kp_ingest::dream::DreamReport, Box<dyn Error>> {
-    match (url, model) {
-        (Some(url), Some(model)) => Ok(dream(
-            store,
-            actor,
-            at,
-            &HttpDreamAttributor::with_api_key(url, model, allow_cloud, api_key)?,
-        )
-        .await?),
-        (None, None) if !allow_cloud => {
-            let detected = crate::governance::detect_global_model();
-            match detected {
-                DetectedGenerativeModel::HostCli(_) | DetectedGenerativeModel::HttpApi(_) => {
-                    let client = detected.build_llm_client_with_overrides(None, None)?;
-                    let attributor = LlmDreamAttributor::new(client)?;
-                    Ok(dream(store, actor, at, &attributor).await?)
-                }
-                DetectedGenerativeModel::RawOnly => {
-                    Ok(dream(store, actor, at, &StructuredDreamAttributor).await?)
-                }
+    let DreamLlmOptions {
+        precomputed_policy,
+        url,
+        model,
+        api_key,
+        allow_cloud,
+    } = opts;
+    match url {
+        Some(endpoint) => {
+            let client =
+                LlmDreamAttributor::http_llm_client(endpoint, model, allow_cloud, api_key)?;
+            let effective_policy = precomputed_policy
+                .unwrap_or_else(crate::governance::explicit_writeback_default_policy);
+            if effective_policy == ModelRoutePolicy::RawOnly {
+                return Ok(dream(store, actor, at, &StructuredDreamAttributor).await?);
             }
+            let drain_out =
+                crate::governance::drain_for_dream(store, actor, at, Some(Arc::clone(&client)))
+                    .await?;
+            let attributor = LlmDreamAttributor::new(client)?;
+            let mut report = dream(store, actor, at, &attributor).await?;
+            report.sources_mined +=
+                usize::try_from(drain_out["jobs_processed"].as_u64().unwrap_or(0)).unwrap_or(0);
+            report.facts_distilled += drain_out["created_facts"]
+                .as_array()
+                .map_or(0, std::vec::Vec::len);
+            Ok(report)
         }
-        _ => Err("--llm-url and --llm-model must be supplied together".into()),
+        None if model.is_none() && !allow_cloud => {
+            let detected = crate::governance::detect_global_model();
+            if matches!(detected, DetectedGenerativeModel::RawOnly)
+                || detected.route_policy() == ModelRoutePolicy::RawOnly
+            {
+                return Ok(dream(store, actor, at, &StructuredDreamAttributor).await?);
+            }
+            let effective_policy = precomputed_policy
+                .unwrap_or_else(crate::governance::explicit_writeback_default_policy);
+            if effective_policy == ModelRoutePolicy::RawOnly {
+                return Ok(dream(store, actor, at, &StructuredDreamAttributor).await?);
+            }
+            let client = detected.build_llm_client_with_overrides(None, None)?;
+            let drain_out = crate::governance::drain_for_dream(store, actor, at, None).await?;
+            let attributor = LlmDreamAttributor::new(client)?;
+            let mut report = dream(store, actor, at, &attributor).await?;
+            report.sources_mined +=
+                usize::try_from(drain_out["jobs_processed"].as_u64().unwrap_or(0)).unwrap_or(0);
+            report.facts_distilled += drain_out["created_facts"]
+                .as_array()
+                .map_or(0, std::vec::Vec::len);
+            Ok(report)
+        }
+        _ => {
+            Err("--llm-url (or --endpoint) is required with --llm-model / --allow-cloud-llm".into())
+        }
     }
 }
 

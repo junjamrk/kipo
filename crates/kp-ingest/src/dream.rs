@@ -4,22 +4,16 @@ use std::pin::Pin;
 use std::sync::{Arc, LazyLock};
 
 use kp_model::{
-    verify_verbatim_quote, ActorId, Attribution, AudienceSpec, BitemporalStamp, ContentHash,
-    ContrastKind, DerivationView, DistilledFactSpec, DreamDecision, DreamDistillEnvelope, EpochMs,
-    Fact, FactAccess, FactId, FactKind, FactRank, FactStatus, LlmClient, ModelRoutePolicy,
-    QuoteLocationHint, RejectionEvidenceKey, RsiDimension, SecretRedactor, SourceId,
-    SourceModality, TrustTier, ValidityWindow, EVIDENCE_BOUNDARY,
+    ActorId, Attribution, ContrastKind, DerivationView, DreamDecision, DreamDistillEnvelope,
+    EpochMs, FactId, FactKind, LlmClient, ModelRoutePolicy, RsiDimension, SecretRedactor, SourceId,
+    TrustTier, EVIDENCE_BOUNDARY,
 };
-use kp_store::{Episode, FactInput, FtsOnlyEmbedder, Store};
+use kp_store::{Episode, Store};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::{IngestError, Result};
-
-#[path = "dream_http.rs"]
-mod http;
-pub use http::HttpDreamAttributor;
 
 static UUID_RE: LazyLock<std::result::Result<Regex, regex::Error>> = LazyLock::new(|| {
     Regex::new(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
@@ -149,8 +143,8 @@ impl DreamAttributor for StructuredDreamAttributor {
     }
 }
 
-/// Multi-source generative `DreamAttributor` backed by any `kp_model::LlmClient` (`HostCliRunner`,
-/// `HttpApiLlmClient`, `FallbackLlmClient`, `PolicyRoutedLlmClient`, or `DeterministicMockLlm`).
+/// Procedural skill compiler backed by any `kp_model::LlmClient` (`HostCliRunner`,
+/// `HttpApiLlmClient`, `FallbackLlmClient`, `PolicyRoutedLlmClient`, or mock clients).
 pub struct LlmDreamAttributor {
     client: Arc<dyn LlmClient>,
     redactor: SecretRedactor,
@@ -163,25 +157,105 @@ impl LlmDreamAttributor {
             redactor: SecretRedactor::new()?,
         })
     }
+
+    pub fn http_llm_client(
+        endpoint: &str,
+        model: Option<&str>,
+        allow_cloud: bool,
+        api_key: Option<String>,
+    ) -> Result<Arc<dyn LlmClient>> {
+        if let Some(m) = model {
+            if m.trim().is_empty() {
+                return Err(IngestError::Invalid("invalid dream endpoint or model"));
+            }
+        }
+        let parsed = kp_derive::validate_gateway_base_url(endpoint)
+            .map_err(|_| IngestError::Invalid("invalid dream endpoint"))?;
+        let host = parsed
+            .host_str()
+            .ok_or(IngestError::Invalid("missing dream host"))?;
+        let loopback = host.eq_ignore_ascii_case("localhost")
+            || host
+                .trim_matches(['[', ']'])
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|ip| ip.is_loopback());
+        if !loopback && !allow_cloud {
+            return Err(IngestError::Invalid(
+                "non-loopback dream endpoint requires --allow-cloud-llm",
+            ));
+        }
+
+        let is_anthropic = parsed.path().trim_end_matches('/').ends_with("/messages");
+        let provider = if is_anthropic {
+            kp_derive::GenerativeApiProvider::Anthropic
+        } else {
+            kp_derive::GenerativeApiProvider::OpenAi
+        };
+
+        let resolved_key = match api_key {
+            Some(explicit) => {
+                let clean = explicit.trim().to_owned();
+                if clean.is_empty() {
+                    return Err(IngestError::Invalid("dream API key must be nonempty"));
+                }
+                clean
+            }
+            None => std::env::var("KP_DREAM_API_KEY")
+                .ok()
+                .filter(|k| !k.trim().is_empty())
+                .or_else(|| {
+                    std::env::var(provider.auth_env())
+                        .ok()
+                        .filter(|k| !k.trim().is_empty())
+                })
+                .or_else(|| {
+                    for fallback_env in ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"] {
+                        if let Ok(val) = std::env::var(fallback_env) {
+                            if !val.trim().is_empty() {
+                                return Some(val);
+                            }
+                        }
+                    }
+                    None
+                })
+                .map(|k| k.trim().to_owned())
+                .unwrap_or_else(|| "local-loopback".to_owned()),
+        };
+
+        let mut cfg = kp_derive::HttpApiConfig::for_provider(provider, resolved_key)
+            .with_base_url(parsed.as_str());
+        if let Some(m) = model {
+            cfg = cfg.with_model(m.trim());
+        }
+        let client = kp_derive::HttpApiLlmClient::new(cfg)?;
+        Ok(Arc::new(client))
+    }
+
+    pub fn from_http_endpoint(
+        endpoint: &str,
+        model: &str,
+        allow_cloud: bool,
+        api_key: Option<String>,
+    ) -> Result<Self> {
+        let client = Self::http_llm_client(endpoint, Some(model), allow_cloud, api_key)?;
+        Self::new(client)
+    }
 }
 
 const LLM_DISTILL_INSTRUCTIONS: &str = "\
-You are Kipo's sleep-time knowledge consolidator and procedural skill compiler.
-Input may come from coding sessions, team chat logs, technical documents, web links, or timed audio/video transcripts.
+You are Kipo's sleep-time procedural skill compiler over verified coding-session episodes.
 
 Follow these strict rules:
 1. Return `decision = \"KEEP_BASE\"` (with `rejection_class`) when the episode is a one-off task redirect, unverified intermediate guess, timeout/interrupt, or baseline language trivia.
-2. Separate declarative facts from procedural skills:
-   - Single-point project constraints, banned commands, architectural decisions, or verified pitfalls belong in `memory_facts` (`kind`: `constraint`, `decision`, `closed_negative`, or `fact_slot`), each citing an exact `verbatim_quote` from `premises`.
-   - Reusable multi-step troubleshooting or operational workflows verified by tool exit 0 or explicit confirmation belong in `decision = \"UPDATE\"` (`attribution` + optional `extra_rules`).
-3. If `existing_skills` already lists a matching `(skill_slug, dimension)` for the same root pattern, reuse that exact `skill_slug` so Kipo clusters cross-source corroboration instead of fragmenting duplicates.
+2. Reusable multi-step troubleshooting or operational workflows verified by tool exit 0 or explicit human correction belong in `decision = \"UPDATE\"` (`attribution` + optional `extra_rules`).
+3. If `existing_skills` already lists a matching `(skill_slug, dimension)` for the same root pattern, reuse that exact `skill_slug` so Kipo clusters independent corroboration instead of fragmenting duplicates.
 4. Never include personal home paths, UUIDs, secrets, or CLI flags absent from the observed trace/premises. Never copy >= 48 contiguous characters from transcripts.";
 
 pub fn dream_distill_json_schema() -> Value {
     json!({
         "type": "object",
         "additionalProperties": false,
-        "required": ["decision"],
+        "required": ["decision", "rejection_class", "attribution", "extra_rules"],
         "properties": {
             "decision": { "type": "string", "enum": ["KEEP_BASE", "UPDATE"] },
             "rejection_class": {
@@ -199,7 +273,14 @@ pub fn dream_distill_json_schema() -> Value {
             "attribution": {
                 "type": ["object", "null"],
                 "additionalProperties": false,
-                "required": ["skill_slug", "trigger", "wrong_move", "verified_fix", "dimension"],
+                "required": [
+                    "skill_slug",
+                    "trigger",
+                    "wrong_move",
+                    "verified_fix",
+                    "dimension",
+                    "cited_premise_ids"
+                ],
                 "properties": {
                     "skill_slug": { "type": "string" },
                     "trigger": { "type": "string" },
@@ -209,26 +290,7 @@ pub fn dream_distill_json_schema() -> Value {
                     "cited_premise_ids": { "type": "array", "items": { "type": "string" } }
                 }
             },
-            "extra_rules": { "type": "array", "items": { "type": "string" } },
-            "memory_facts": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": ["kind", "subject", "predicate", "summary", "verbatim_quote"],
-                    "properties": {
-                        "kind": { "type": "string", "enum": ["constraint", "decision", "closed_negative", "fact_slot", "observation"] },
-                        "subject": { "type": "string" },
-                        "predicate": { "type": "string" },
-                        "summary": { "type": "string" },
-                        "verbatim_quote": { "type": "string" },
-                        "hard_guard": { "type": "boolean" },
-                        "forbidden_commands": { "type": "array", "items": { "type": "string" } },
-                        "allowed_commands": { "type": "array", "items": { "type": "string" } },
-                        "required_flags": { "type": "array", "items": { "type": "string" } }
-                    }
-                }
-            }
+            "extra_rules": { "type": "array", "items": { "type": "string" } }
         }
     })
 }
@@ -261,13 +323,6 @@ pub(crate) fn parse_distill_envelope(raw: Value) -> Result<DreamDistillEnvelope>
         .cloned()
         .map(serde_json::from_value)
         .transpose()?;
-    let memory_facts: Vec<DistilledFactSpec> = obj
-        .get("memory_facts")
-        .filter(|v| !v.is_null())
-        .cloned()
-        .map(serde_json::from_value)
-        .transpose()?
-        .unwrap_or_default();
     let extra_rules: Vec<String> = obj
         .get("extra_rules")
         .filter(|v| !v.is_null())
@@ -278,7 +333,6 @@ pub(crate) fn parse_distill_envelope(raw: Value) -> Result<DreamDistillEnvelope>
     Ok(DreamDistillEnvelope {
         decision,
         rejection_class,
-        memory_facts,
         extra_rules,
     })
 }
@@ -494,169 +548,6 @@ fn collect_existing_skill_briefs(
     out
 }
 
-fn persist_distilled_memory_facts(
-    store: &mut Store,
-    actor: &ActorId,
-    episode: &Episode,
-    specs: &[DistilledFactSpec],
-    is_raw_only: bool,
-    at: EpochMs,
-) -> Result<usize> {
-    if specs.is_empty() {
-        return Ok(0);
-    }
-    let Some(sid_str) = episode.environment.get("source_id").and_then(Value::as_str) else {
-        return Ok(0);
-    };
-    let Ok(source_id) = sid_str.parse::<SourceId>() else {
-        return Ok(0);
-    };
-    let chunks = store.source_anchored_chunks(&source_id)?;
-    if chunks.is_empty() {
-        return Ok(0);
-    }
-    let ctx_opt = store.extraction_source_context(&source_id, &[])?;
-    let audience = ctx_opt
-        .as_ref()
-        .map(|c| c.readable_by.clone())
-        .unwrap_or_else(|| AudienceSpec::Explicit(BTreeSet::from([actor.clone()])));
-    let source_scope_id = ctx_opt.as_ref().and_then(|c| c.source_scope_id.clone());
-    let uri = ctx_opt.map(|c| c.uri).unwrap_or_default();
-    let modality = SourceModality::infer(&uri, "");
-    let trust_tier = if modality == SourceModality::WebLink {
-        TrustTier::ExternalUntrusted
-    } else {
-        TrustTier::ToolOrModelVerified
-    };
-    let rejections = store.list_rejections(None)?;
-    let mut created = 0usize;
-
-    for (idx, raw_spec) in specs.iter().enumerate() {
-        let Ok(spec) = raw_spec.clone().sanitize() else {
-            continue;
-        };
-        let mut matched = None;
-        for ch in &chunks {
-            let hint = QuoteLocationHint {
-                turn_ordinal: None,
-                approx_char_offset: ch
-                    .body
-                    .find(&spec.verbatim_quote)
-                    .and_then(|b| u32::try_from(ch.body[..b].chars().count()).ok()),
-            };
-            if let Ok(ver) = verify_verbatim_quote(&ch.body, &spec.verbatim_quote, hint) {
-                matched = Some((ch, ver));
-                break;
-            }
-        }
-        let Some((chunk, verified)) = matched else {
-            continue;
-        };
-        let ev_key = RejectionEvidenceKey {
-            speaker: actor.clone(),
-            chunk_sha256: ContentHash::digest(&chunk.body),
-            quote_span: verified.span,
-        };
-        if rejections
-            .iter()
-            .any(|r| r.matches_candidate(Some(&ev_key), None))
-        {
-            continue;
-        }
-        let digest = ContentHash::digest(
-            serde_json::to_vec(&(
-                store.library_id(),
-                actor,
-                &source_id,
-                &chunk.chunk_id,
-                spec.kind,
-                &spec.subject,
-                &spec.predicate,
-                &verified.exact_quote,
-            ))?
-            .as_slice(),
-        );
-        let logical_key: kp_model::LogicalKey = format!("dream-mem:{digest}").parse()?;
-        if store
-            .visible_facts(actor, at)?
-            .iter()
-            .any(|f| f.origin_library == *store.library_id() && f.logical_key == logical_key)
-        {
-            continue;
-        }
-
-        let mut merged_anchor = chunk.anchor.clone();
-        merged_anchor.source_id = Some(source_id.clone());
-        merged_anchor.chunk_id = Some(chunk.chunk_id.clone());
-        merged_anchor.verbatim_quote = Some(verified.exact_quote);
-        merged_anchor.char_start = Some(verified.span.char_start);
-        merged_anchor.char_end = Some(verified.span.char_end);
-
-        let mut obj = json!({ "summary": spec.summary });
-        if spec.hard_guard && trust_tier != TrustTier::ExternalUntrusted {
-            obj["hard_guard"] = json!(true);
-        }
-        if !spec.forbidden_commands.is_empty() {
-            obj["forbidden_commands"] = json!(spec.forbidden_commands);
-        }
-        if !spec.allowed_commands.is_empty() {
-            obj["allowed_commands"] = json!(spec.allowed_commands);
-        }
-        if !spec.required_flags.is_empty() {
-            obj["required_flags"] = json!(spec.required_flags);
-        }
-
-        let mut tags = BTreeSet::new();
-        if is_raw_only {
-            tags.insert("kp.raw_only".to_owned());
-        }
-        let fact = Fact {
-            id: kp_store::new_fact_id()?,
-            origin_library: store.library_id().clone(),
-            logical_key,
-            kind: spec.kind,
-            subject: spec.subject,
-            predicate: spec.predicate,
-            object: obj,
-            tags,
-            author: actor.clone(),
-            ingested_by: Some(actor.clone()),
-            trust_tier,
-            access: FactAccess::Base {
-                audience: audience.clone(),
-                stamp: BitemporalStamp {
-                    valid: ValidityWindow {
-                        valid_from: EpochMs(0),
-                        valid_until: EpochMs::OPEN_END,
-                    },
-                    recorded_at: EpochMs(at.0.saturating_add(i64::try_from(idx).unwrap_or(0))),
-                    expired_at: None,
-                },
-            },
-            source_scope_id: source_scope_id.clone(),
-            governed_scope: None,
-            broader_scope: None,
-            status: FactStatus::Active,
-            superseded_by: None,
-            rank: FactRank::Normal,
-            source_anchor: Some(merged_anchor),
-            unverified_gaps: Vec::new(),
-            miss_count: 0,
-        };
-        let input = FactInput {
-            fact,
-            entities: BTreeSet::new(),
-        };
-        if is_raw_only {
-            store.remember_with_embedder(std::slice::from_ref(&input), &FtsOnlyEmbedder)?;
-        } else {
-            store.remember(std::slice::from_ref(&input))?;
-        }
-        created += 1;
-    }
-    Ok(created)
-}
-
 pub async fn dream(
     store: &mut Store,
     actor: &ActorId,
@@ -668,14 +559,9 @@ pub async fn dream(
     }
     store.sync_skills_now()?;
     let auto_sessions = crate::session_miner::mine_unprocessed_store_sessions(store, actor, at)?;
-    let auto_sources = crate::source_miner::mine_unprocessed_non_session_sources(store, actor, at)?;
     let mut report = DreamReport {
         sessions_mined: auto_sessions.sessions_scanned,
-        sources_mined: auto_sources.sources_scanned,
-        episodes_mined: auto_sessions
-            .episodes_recorded
-            .saturating_add(auto_sources.episodes_recorded),
-        facts_distilled: auto_sources.declarative_facts_created,
+        episodes_mined: auto_sessions.episodes_recorded,
         ..DreamReport::default()
     };
     let redactor = SecretRedactor::new()?;
@@ -691,7 +577,14 @@ pub async fn dream(
             .map(serde_json::from_value)
             .transpose()?
             .unwrap_or_default();
-        if premise_ids.iter().any(|id| !visible.facts.contains(id)) {
+        if premise_ids.iter().any(|id| !visible.facts.contains(id))
+            || premise_ids.iter().any(|id| {
+                graph
+                    .facts
+                    .get(id)
+                    .is_some_and(|f| f.trust_tier == TrustTier::ExternalUntrusted)
+            })
+        {
             let applied = store.apply_attribution(&pending, actor, None, at)?;
             report.processed += usize::from(applied.processed);
             report.kept_base += usize::from(applied.processed);
@@ -730,17 +623,6 @@ pub async fn dream(
         } else {
             DreamDistillEnvelope::default()
         };
-
-        if !envelope.memory_facts.is_empty() {
-            report.facts_distilled += persist_distilled_memory_facts(
-                store,
-                actor,
-                &input.episode,
-                &envelope.memory_facts,
-                is_raw_only,
-                at,
-            )?;
-        }
 
         let extra_rules = DreamDistillEnvelope::sanitize_extra_rules(&envelope.extra_rules)?;
         let attribution = match envelope.decision {
@@ -796,7 +678,7 @@ pub async fn dream(
             at,
         )?;
         report.processed += usize::from(applied.processed);
-        report.kept_base += usize::from(applied.processed && attribution.is_none());
+        report.kept_base += usize::from(applied.processed && applied.bullet.is_none());
         report.bullets_created += usize::from(applied.created);
     }
     report.promoted = crate::skill_pkg::promote_ready(store, actor, at)?;

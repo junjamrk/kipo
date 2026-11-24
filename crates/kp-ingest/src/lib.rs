@@ -10,8 +10,6 @@ mod office;
 pub mod session_miner;
 pub mod signals;
 pub mod skill_pkg;
-pub mod source_miner;
-mod subtitles;
 mod text;
 mod web_and_media;
 

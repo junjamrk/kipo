@@ -8,8 +8,8 @@ use kp_model::{AnchorSpec, ContentHash, TrustTier, ValidityWindow};
 use kp_store::{ChunkInput, RawSourceInput, Store};
 use regex::Regex;
 
-use crate::doc_router::{AddedDocument, Document};
-use crate::{subtitles, text, IngestError, Result, MAX_INPUT_BYTES};
+use crate::doc_router::AddedDocument;
+use crate::{text, IngestError, Result, MAX_INPUT_BYTES};
 
 static STRIP_BLOCK_RE: LazyLock<std::result::Result<Regex, regex::Error>> = LazyLock::new(|| {
     Regex::new(
@@ -29,30 +29,6 @@ static BLOCK_BREAK_RE: LazyLock<std::result::Result<Regex, regex::Error>> = Lazy
 });
 static ANY_TAG_RE: LazyLock<std::result::Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(r"(?s)<[^>]+>"));
-
-pub(crate) fn is_media_extension(ext: &str) -> bool {
-    matches!(
-        ext,
-        "mp4" | "mov" | "mkv" | "webm" | "avi" | "mp3" | "m4a" | "wav" | "flac" | "ogg" | "aac"
-    )
-}
-
-pub(crate) fn media_mime_type(ext: &str) -> &'static str {
-    match ext {
-        "mp4" => "video/mp4",
-        "mov" => "video/quicktime",
-        "mkv" => "video/x-matroska",
-        "webm" => "video/webm",
-        "avi" => "video/x-msvideo",
-        "mp3" => "audio/mpeg",
-        "m4a" => "audio/mp4",
-        "wav" => "audio/wav",
-        "flac" => "audio/flac",
-        "ogg" => "audio/ogg",
-        "aac" => "audio/aac",
-        _ => "application/octet-stream",
-    }
-}
 
 pub(crate) fn parse_html(source: &str) -> Result<Vec<ChunkInput>> {
     let strip_re = STRIP_BLOCK_RE.as_ref().map_err(Clone::clone)?;
@@ -180,100 +156,6 @@ fn decode_html_entities(input: &str) -> String {
     out
 }
 
-pub(crate) fn parse_media_sidecar(path: &Path, ext: &str) -> Result<(Document, Option<Vec<u8>>)> {
-    let media_type = media_mime_type(ext);
-    let Some(parent) = path.parent() else {
-        return Ok((
-            Document {
-                media_type,
-                chunks: Vec::new(),
-                needs_ocr: true,
-            },
-            None,
-        ));
-    };
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    let fname = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-    let candidates = [
-        format!("{stem}.vtt"),
-        format!("{stem}.srt"),
-        format!("{stem}.lrc"),
-        format!("{stem}.whisper.json"),
-        format!("{stem}.transcript.json"),
-        format!("{stem}.json"),
-        format!("{stem}.md"),
-        format!("{stem}.txt"),
-        format!("{fname}.vtt"),
-        format!("{fname}.srt"),
-        format!("{fname}.lrc"),
-    ];
-
-    for cand_name in candidates {
-        if stem.is_empty() && !cand_name.starts_with(fname) {
-            continue;
-        }
-        let sidecar = parent.join(&cand_name);
-        let Ok(meta) = std::fs::symlink_metadata(&sidecar) else {
-            continue;
-        };
-        if meta.file_type().is_symlink() || !meta.is_file() {
-            continue;
-        }
-        let bytes = crate::read_file(&sidecar)?;
-        let side_ext = sidecar
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        let chunks = match side_ext.as_str() {
-            "vtt" | "srt" => subtitles::parse(&text::decode(&bytes)?)?,
-            "lrc" => subtitles::parse_lrc(&text::decode(&bytes)?)?,
-            "json" => match subtitles::try_parse_asr_json(&text::decode(&bytes)?) {
-                Some(c) => c,
-                None => continue,
-            },
-            "md" => text::markdown(&text::decode(&bytes)?)?,
-            "txt" => {
-                let decoded = text::decode(&bytes)?;
-                if decoded.trim().is_empty() {
-                    continue;
-                }
-                vec![ChunkInput {
-                    heading: String::new(),
-                    body: decoded.trim().to_owned(),
-                    anchor: AnchorSpec::default(),
-                }]
-            }
-            _ => continue,
-        };
-        if chunks.is_empty() {
-            continue;
-        }
-        let media_path_str = path.to_string_lossy().into_owned();
-        let mut anchored = chunks;
-        for ch in &mut anchored {
-            ch.anchor.file_path = Some(media_path_str.clone());
-        }
-        return Ok((
-            Document {
-                media_type,
-                chunks: anchored,
-                needs_ocr: false,
-            },
-            Some(bytes),
-        ));
-    }
-
-    Ok((
-        Document {
-            media_type,
-            chunks: Vec::new(),
-            needs_ocr: true,
-        },
-        None,
-    ))
-}
-
 fn is_disallowed_ip(ip: IpAddr, allow_loopback: bool) -> bool {
     match ip {
         IpAddr::V4(v4) => {
@@ -392,18 +274,25 @@ pub async fn add_url(
     }
 
     let path_lower = parsed.path().to_ascii_lowercase();
+    if content_type.starts_with("audio/")
+        || content_type.starts_with("video/")
+        || matches!(
+            content_type.as_str(),
+            "text/vtt" | "application/x-subrip" | "application/x-lrc"
+        )
+        || [
+            ".mp4", ".mov", ".mkv", ".webm", ".avi", ".mp3", ".m4a", ".wav", ".flac", ".ogg",
+            ".aac", ".vtt", ".srt", ".lrc",
+        ]
+        .iter()
+        .any(|ext| path_lower.ends_with(ext))
+    {
+        return Err(IngestError::Invalid("unsupported document format"));
+    }
     let (media_type, mut chunks, needs_ocr) =
         if content_type == "application/pdf" || path_lower.ends_with(".pdf") {
             let doc = crate::doc_router::parse(Path::new("remote.pdf"), &bytes)?;
             (doc.media_type, doc.chunks, doc.needs_ocr)
-        } else if content_type == "text/vtt" || path_lower.ends_with(".vtt") {
-            ("text/vtt", subtitles::parse(&text::decode(&bytes)?)?, false)
-        } else if content_type == "application/x-subrip" || path_lower.ends_with(".srt") {
-            (
-                "application/x-subrip",
-                subtitles::parse(&text::decode(&bytes)?)?,
-                false,
-            )
         } else if content_type == "text/markdown"
             || path_lower.ends_with(".md")
             || path_lower.ends_with(".markdown")
@@ -415,19 +304,15 @@ pub async fn add_url(
             )
         } else if content_type.contains("json") || path_lower.ends_with(".json") {
             let decoded = text::decode(&bytes)?;
-            if let Some(asr) = subtitles::try_parse_asr_json(&decoded) {
-                ("application/x-whisper+json", asr, false)
-            } else {
-                (
-                    "application/json",
-                    vec![ChunkInput {
-                        heading: String::new(),
-                        body: decoded.into_owned(),
-                        anchor: AnchorSpec::default(),
-                    }],
-                    false,
-                )
-            }
+            (
+                "application/json",
+                vec![ChunkInput {
+                    heading: String::new(),
+                    body: decoded.into_owned(),
+                    anchor: AnchorSpec::default(),
+                }],
+                false,
+            )
         } else if content_type.contains("html")
             || path_lower.ends_with(".html")
             || path_lower.ends_with(".htm")

@@ -39,7 +39,7 @@ mod test_support;
 pub use anchors::{CodeAnchor, CodeLocus};
 pub use audit_log::ChangeLogEntry;
 pub use db::{InitOptions, LibraryStatus, MemberToken, Store};
-pub use episodes::{AnchoredSourceChunk, Episode, PendingEpisode, UnminedDreamSource};
+pub use episodes::{AnchoredSourceChunk, Episode, PendingEpisode};
 pub use error::{Result, StoreError};
 pub use export::ExportReport;
 pub use governance::{

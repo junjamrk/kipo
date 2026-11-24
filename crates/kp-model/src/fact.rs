@@ -63,6 +63,16 @@ pub enum TrustTier {
     ExternalUntrusted = 3,
 }
 
+impl TrustTier {
+    pub const fn weakest(self, other: Self) -> Self {
+        if (self as u8) >= (other as u8) {
+            self
+        } else {
+            other
+        }
+    }
+}
+
 impl TryFrom<u8> for TrustTier {
     type Error = KpError;
     fn try_from(value: u8) -> Result<Self> {

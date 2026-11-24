@@ -4,7 +4,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use crate::schema::text_enum;
-use crate::{ContentHash, FactId, FactKind, KpError, Result, SecretRedactor, StrongRef};
+use crate::{ContentHash, FactId, KpError, Result, SecretRedactor, StrongRef};
 
 text_enum!(RsiDimension { Inv => "INV", Dom => "DOM" });
 text_enum!(FeedbackOutcome { Helped => "helped", Hurt => "hurt", Neutral => "neutral" });
@@ -12,8 +12,7 @@ text_enum!(SourceModality {
     AgentSession => "agent_session",
     ChatDialogue => "chat_dialogue",
     Document => "document",
-    WebLink => "web_link",
-    TimedMedia => "timed_media"
+    WebLink => "web_link"
 });
 text_enum!(DreamRejectionClass {
     OneOffTaskRedirect => "one_off_task_redirect",
@@ -37,20 +36,6 @@ impl SourceModality {
         }
         if u.starts_with("http://") || u.starts_with("https://") || mt == "text/html" {
             return Self::WebLink;
-        }
-        if mt.starts_with("audio/")
-            || mt.starts_with("video/")
-            || mt == "text/vtt"
-            || mt == "application/x-subrip"
-            || mt == "application/x-lrc"
-            || mt == "application/x-whisper+json"
-            || [
-                ".vtt", ".srt", ".lrc", ".mp4", ".mov", ".mkv", ".webm", ".mp3", ".m4a", ".wav",
-            ]
-            .iter()
-            .any(|ext| u.ends_with(ext))
-        {
-            return Self::TimedMedia;
         }
         if u.starts_with("chat:")
             || u.starts_with("feishu:")
@@ -175,81 +160,6 @@ impl Attribution {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DistilledFactSpec {
-    pub kind: FactKind,
-    pub subject: String,
-    pub predicate: String,
-    pub summary: String,
-    pub verbatim_quote: String,
-    #[serde(default)]
-    pub hard_guard: bool,
-    #[serde(default)]
-    pub forbidden_commands: Vec<String>,
-    #[serde(default)]
-    pub allowed_commands: Vec<String>,
-    #[serde(default)]
-    pub required_flags: Vec<String>,
-}
-
-impl DistilledFactSpec {
-    pub fn sanitize(mut self) -> Result<Self> {
-        if self.kind.is_derived() || self.kind == FactKind::Membership {
-            return Err(KpError::invalid(
-                "kind",
-                "dream declarative fact must use a non-membership base FactKind",
-            ));
-        }
-        let redactor =
-            SecretRedactor::new().map_err(|_| KpError::invalid("redactor", "invalid pattern"))?;
-        self.subject = redactor
-            .redact(&self.subject)
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-        self.predicate = redactor
-            .redact(&self.predicate)
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-        self.summary = redactor
-            .redact(&self.summary)
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-        self.verbatim_quote = redactor.redact(self.verbatim_quote.trim());
-        if self.subject.is_empty()
-            || self.predicate.is_empty()
-            || self.summary.is_empty()
-            || self.verbatim_quote.is_empty()
-        {
-            return Err(KpError::invalid(
-                "distilled_fact",
-                "subject, predicate, summary, and verbatim_quote must be nonempty",
-            ));
-        }
-        rule_text(&self.summary)?;
-        for list in [
-            &mut self.forbidden_commands,
-            &mut self.allowed_commands,
-            &mut self.required_flags,
-        ] {
-            *list = list
-                .iter()
-                .map(|s| {
-                    redactor
-                        .redact(s)
-                        .split_whitespace()
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                })
-                .filter(|s| !s.is_empty() && s.len() <= 256 && !s.chars().any(char::is_control))
-                .collect();
-        }
-        Ok(self)
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "decision", content = "attribution")]
 pub enum DreamDecision {
@@ -292,8 +202,6 @@ pub struct DreamDistillEnvelope {
     pub decision: DreamDecision,
     #[serde(default)]
     pub rejection_class: Option<DreamRejectionClass>,
-    #[serde(default)]
-    pub memory_facts: Vec<DistilledFactSpec>,
     #[serde(default)]
     pub extra_rules: Vec<String>,
 }

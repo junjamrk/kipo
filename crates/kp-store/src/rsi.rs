@@ -78,6 +78,46 @@ impl Store {
             }
             premises.push(graph.facts.get(id).ok_or(StoreError::NotFound)?.clone());
         }
+        let env_premise_ids: Vec<FactId> = pending
+            .episode
+            .environment
+            .get("premise_ids")
+            .cloned()
+            .map(serde_json::from_value)
+            .transpose()?
+            .unwrap_or_default();
+        let linked_premise_ids: Vec<FactId> = {
+            let mut stmt =
+                tx.prepare("SELECT fact_id FROM rsi_episode_facts WHERE episode_id = ?1")?;
+            let rows = stmt.query_map([pending.id.as_str()], |r| r.get::<_, String>(0))?;
+            let mut ids = Vec::new();
+            for row in rows {
+                if let Ok(fid) = row?.parse::<FactId>() {
+                    ids.push(fid);
+                }
+            }
+            ids
+        };
+        if premises
+            .iter()
+            .any(|f| f.trust_tier == TrustTier::ExternalUntrusted)
+            || env_premise_ids
+                .iter()
+                .chain(linked_premise_ids.iter())
+                .any(|id| {
+                    graph
+                        .facts
+                        .get(id)
+                        .is_some_and(|f| f.trust_tier == TrustTier::ExternalUntrusted)
+                })
+        {
+            tx.commit()?;
+            return Ok(AppliedEpisode {
+                processed: true,
+                created: false,
+                bullet: None,
+            });
+        }
         let identity =
             ContentHash::digest(serde_json::to_vec(&(&self.library_id, actor, &pending.id))?);
         let mut anchor = derived_fact(

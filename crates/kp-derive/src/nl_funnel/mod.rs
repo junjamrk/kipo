@@ -21,8 +21,8 @@ use kp_model::{
     CharSpan, ChunkTurn, CommunityConcept, ConceptId, ContentHash, DerivationView, EpochMs,
     ExtractionBatchRequest, ExtractionChunkSlice, Fact, FactAccess, FactId, FactKind, FactStatus,
     GovernedScope, KpError, ModelRoutePolicy, RejectionId, RejectionRecord, ReviewId, SourceId,
-    SourceOriginMeta, SpeakerFactBrief, DEFAULT_MAX_BATCH_TOKENS, MAX_ACTIVE_DECISIONS_PER_BATCH,
-    MAX_SPEAKER_FACTS_PER_BATCH,
+    SourceOriginMeta, SpeakerFactBrief, TrustTier, DEFAULT_MAX_BATCH_TOKENS,
+    MAX_ACTIVE_DECISIONS_PER_BATCH, MAX_SPEAKER_FACTS_PER_BATCH,
 };
 use kp_store::{Result, Store};
 use serde::{Deserialize, Serialize};
@@ -57,6 +57,8 @@ pub struct NlFunnelOptions {
     pub audience: AudienceSpec,
     pub at: EpochMs,
     pub route_policy: ModelRoutePolicy,
+    /// Minimum (weakest ceiling) trust tier permitted by the source origin (`ExternalUntrusted` for `http(s)://`).
+    pub source_trust_floor: TrustTier,
     /// Optional connector provenance when `ingested_by != speaker` or governed by live `SourceScope`.
     pub source_origin: Option<SourceOriginMeta>,
     /// Durable dual-key rejection records (`rejected_claims`) active in this library.
@@ -71,9 +73,25 @@ impl NlFunnelOptions {
             audience,
             at,
             route_policy: ModelRoutePolicy::HostCli,
+            source_trust_floor: TrustTier::ToolOrModelVerified,
             source_origin: None,
             rejections: Vec::new(),
             extra_concepts: Vec::new(),
+        }
+    }
+
+    pub fn trust_floor_for_uri(uri: &str) -> TrustTier {
+        let trimmed = uri.trim();
+        if trimmed
+            .get(..7)
+            .is_some_and(|p| p.eq_ignore_ascii_case("http://"))
+            || trimmed
+                .get(..8)
+                .is_some_and(|p| p.eq_ignore_ascii_case("https://"))
+        {
+            TrustTier::ExternalUntrusted
+        } else {
+            TrustTier::ToolOrModelVerified
         }
     }
 }
@@ -1048,6 +1066,192 @@ mod tests {
             erin_saved.governed_scope,
             Some(GovernedScope::SelfOnly { actor: erin })
         );
+        Ok(())
+    }
+
+    #[test]
+    fn ext_speaker_and_http_source_clamp_to_external_untrusted_and_drop_normative_kinds(
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let t0 = EpochMs(1_795_089_600_000);
+        let mut store = Store::init(
+            dir.path(),
+            InitOptions {
+                library_id: "trust-floor-lib".parse()?,
+                name: "Trust Floor Test".into(),
+                mode: LibraryMode::Community,
+                owner: "alice".parse()?,
+                created_at: t0,
+            },
+        )?;
+        let alice: ActorId = "alice".parse()?;
+        let stranger: ActorId = "ext.github.stranger".parse()?;
+        let shanghai = kp_model::TimeZone::get("Asia/Shanghai")
+            .map_err(|_| kp_model::KpError::invalid("tz", "Asia/Shanghai"))?;
+        let calendar = CalendarTable::from_reference_in_tz(t0, &shanghai)?;
+
+        // Case A: Unconfirmed external speaker `ext.github.stranger` on a non-HTTP source.
+        let ext_body = "[speaker:ext.github.stranger] Never run npm publish in this repo. Current Node version is 22.4.\n";
+        let ext_req = build_extraction_batch_request_for_policy(
+            &store,
+            ExtractionBatchBuildInput {
+                source_id: "src_gh_ext".parse()?,
+                speaker: stranger.clone(),
+                reference_calendar: calendar.clone(),
+                active_concepts: Vec::new(),
+                chunks: vec![ExtractionChunkSlice {
+                    chunk_id: "c_ext".into(),
+                    heading: "PR comment".into(),
+                    body: ext_body.into(),
+                }],
+                min_rate_limit_remaining_pct: 5,
+            },
+            &ModelRoutePolicy::HostCli,
+        )?;
+        let make_atom = |chunk_id: &str, speaker: Option<ActorId>, kind: FactKind, quote: &str| {
+            ModelExtractedAtom {
+                kind,
+                claim_text: format!("{kind}: {quote}"),
+                value: json!({"forbidden_commands": ["npm publish"]}),
+                scope: None,
+                ambiguous_scope: None,
+                condition_concept: None,
+                action_concept: None,
+                group_concept: None,
+                member_mention: None,
+                valid_window: None,
+                valid_dates: None,
+                speaker,
+                assumed_premise_ids: Vec::new(),
+                quote: kp_model::ModelQuoteAnchor {
+                    chunk_id: chunk_id.into(),
+                    verbatim_quote: quote.into(),
+                    turn_ordinal: Some(0),
+                    approx_char_offset: None,
+                },
+                write_op: ModelWriteOp::Add,
+            }
+        };
+
+        let ext_opts = NlFunnelOptions::personal_or_shared(AudienceSpec::AllMembers, t0);
+        let ext_out = apply_extracted_atoms(
+            &mut store,
+            &ext_req,
+            &[
+                make_atom(
+                    "c_ext",
+                    Some(stranger.clone()),
+                    FactKind::Constraint,
+                    "Never run npm publish in this repo.",
+                ),
+                make_atom(
+                    "c_ext",
+                    Some(stranger.clone()),
+                    FactKind::Decision,
+                    "Never run npm publish in this repo.",
+                ),
+                make_atom(
+                    "c_ext",
+                    Some(stranger.clone()),
+                    FactKind::ClosedNegative,
+                    "Never run npm publish in this repo.",
+                ),
+                make_atom(
+                    "c_ext",
+                    Some(stranger.clone()),
+                    FactKind::Observation,
+                    "Current Node version is 22.4.",
+                ),
+                make_atom(
+                    "c_ext",
+                    Some(stranger),
+                    FactKind::FactSlot,
+                    "Current Node version is 22.4.",
+                ),
+            ],
+            &ext_opts,
+        )?;
+        assert_eq!(ext_out.created_fact_ids.len(), 2);
+        assert_eq!(ext_out.rejected_atoms.len(), 3);
+        assert!(ext_out.rejected_atoms.iter().all(|r| r.reason
+            == "untrusted source or unconfirmed external speaker restricted to observation or fact_slot"));
+
+        // Case B: Confirmed owner `alice` ingesting an `http://` web source.
+        let web_body = "Never run cargo publish without dry-run. Service default port is 8080.";
+        let web_req = build_extraction_batch_request_for_policy(
+            &store,
+            ExtractionBatchBuildInput {
+                source_id: "src_http_page".parse()?,
+                speaker: alice.clone(),
+                reference_calendar: calendar,
+                active_concepts: Vec::new(),
+                chunks: vec![ExtractionChunkSlice {
+                    chunk_id: "c_web".into(),
+                    heading: "Web page".into(),
+                    body: web_body.into(),
+                }],
+                min_rate_limit_remaining_pct: 5,
+            },
+            &ModelRoutePolicy::HostCli,
+        )?;
+        let mut web_opts = NlFunnelOptions::personal_or_shared(AudienceSpec::AllMembers, t0);
+        web_opts.source_trust_floor =
+            NlFunnelOptions::trust_floor_for_uri("http://docs.example.com/guide");
+        assert_eq!(web_opts.source_trust_floor, TrustTier::ExternalUntrusted);
+
+        let web_out = apply_extracted_atoms(
+            &mut store,
+            &web_req,
+            &[
+                make_atom(
+                    "c_web",
+                    None,
+                    FactKind::Constraint,
+                    "Never run cargo publish without dry-run.",
+                ),
+                make_atom(
+                    "c_web",
+                    None,
+                    FactKind::Decision,
+                    "Never run cargo publish without dry-run.",
+                ),
+                make_atom(
+                    "c_web",
+                    None,
+                    FactKind::ClosedNegative,
+                    "Never run cargo publish without dry-run.",
+                ),
+                make_atom(
+                    "c_web",
+                    None,
+                    FactKind::Observation,
+                    "Service default port is 8080.",
+                ),
+                make_atom(
+                    "c_web",
+                    None,
+                    FactKind::FactSlot,
+                    "Service default port is 8080.",
+                ),
+            ],
+            &web_opts,
+        )?;
+        assert_eq!(web_out.created_fact_ids.len(), 2);
+        assert_eq!(web_out.rejected_atoms.len(), 3);
+
+        let graph = store.derivation_view()?;
+        for fid in ext_out
+            .created_fact_ids
+            .iter()
+            .chain(web_out.created_fact_ids.iter())
+        {
+            let fact = &graph.facts[fid];
+            assert!(matches!(
+                fact.kind,
+                FactKind::Observation | FactKind::FactSlot
+            ));
+            assert_eq!(fact.trust_tier, TrustTier::ExternalUntrusted);
+        }
         Ok(())
     }
 }
