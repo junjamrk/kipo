@@ -2181,3 +2181,83 @@ fn multi_guard_codex_pre_tool_use_and_multi_arg_kp_allow_are_all_or_nothing() ->
     );
     Ok(())
 }
+
+#[test]
+fn member_cannot_forget_or_purge_another_authors_shared_fact_while_author_and_owner_can(
+) -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let lib = dir.path().join("acl_lib");
+    success(run(
+        &lib,
+        &[
+            "init",
+            "--owner",
+            "alice",
+            "--community",
+            "--no-embedding",
+            "--json",
+        ],
+    )?)?;
+    success(run(
+        &lib,
+        &["member", "add", "bob", "--role", "member", "--json"],
+    )?)?;
+
+    let alice_rem = success(run(
+        &lib,
+        &[
+            "--as",
+            "alice",
+            "remember",
+            "--subject",
+            "db",
+            "--predicate",
+            "kp.core.note",
+            "--value",
+            "Alice shared note",
+            "--logical-key",
+            "alice-shared-key",
+            "--audience",
+            "alice,bob",
+            "--json",
+        ],
+    )?)?;
+    let alice_fid = alice_rem["facts"][0].as_str().ok_or("alice_fid")?;
+
+    let bob_forget = run(&lib, &["--as", "bob", "forget", alice_fid, "--json"])?;
+    assert!(!bob_forget.status.success());
+    let bob_purge = run(
+        &lib,
+        &["--as", "bob", "purge", "alice-shared-key", "--json"],
+    )?;
+    assert!(!bob_purge.status.success());
+
+    success(run(
+        &lib,
+        &[
+            "--as",
+            "bob",
+            "remember",
+            "--subject",
+            "bob-item",
+            "--predicate",
+            "kp.core.note",
+            "--value",
+            "Bob own note",
+            "--logical-key",
+            "bob-own-key",
+            "--audience",
+            "alice,bob",
+            "--json",
+        ],
+    )?)?;
+    success(run(
+        &lib,
+        &["--as", "bob", "purge", "bob-own-key", "--json"],
+    )?)?;
+    success(run(
+        &lib,
+        &["--as", "alice", "forget", alice_fid, "--json"],
+    )?)?;
+    Ok(())
+}

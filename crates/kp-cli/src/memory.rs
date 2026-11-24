@@ -496,10 +496,7 @@ pub async fn run(cli: &Cli, command: &MemoryCommand) -> Result<()> {
                 if targets.is_empty() {
                     return Err(StoreError::NotFound.into());
                 }
-                if targets
-                    .iter()
-                    .any(|f| f.author != actor && f.ingested_by.as_ref() != Some(&actor))
-                {
+                if targets.iter().any(|f| f.author != actor) {
                     if targets.iter().any(|f| visible.facts.contains(&f.id)) {
                         return Err(StoreError::PermissionDenied.into());
                     }
@@ -523,10 +520,25 @@ pub async fn run(cli: &Cli, command: &MemoryCommand) -> Result<()> {
             let Some(role) = store.member_role(&actor)? else {
                 return Err(StoreError::PermissionDenied.into());
             };
-            if !matches!(role, MemberRole::Owner | MemberRole::Maintainer) {
-                return Err(StoreError::PermissionDenied.into());
-            }
             let origin = origin.as_ref().unwrap_or(store.library_id()).clone();
+            if !matches!(role, MemberRole::Owner | MemberRole::Maintainer) {
+                let graph = store.derivation_view()?;
+                let matching: Vec<_> = graph
+                    .facts
+                    .values()
+                    .filter(|f| {
+                        (f.origin_library == origin
+                            && f.logical_key.as_str() == logical_key_or_source_id)
+                            || f.source_anchor
+                                .as_ref()
+                                .and_then(|a| a.source_id.as_ref())
+                                .is_some_and(|sid| sid.as_str() == logical_key_or_source_id)
+                    })
+                    .collect();
+                if matching.is_empty() || matching.iter().any(|f| f.author != actor) {
+                    return Err(StoreError::PermissionDenied.into());
+                }
+            }
             store.purge_target(&origin, logical_key_or_source_id, at, reason)?;
             let _ = kp_derive::derive(&mut store);
             crate::community::notify_or_sync_joined(&cli.path, &mut store, at).await;
