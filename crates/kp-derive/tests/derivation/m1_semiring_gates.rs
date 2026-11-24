@@ -62,6 +62,11 @@ async fn raw_only_skip_leaves_zero_unrelated_cache_and_subsequent_host_cli_align
             chunk_id: "ro_0".into(),
             heading: "notice".into(),
             body: "[speaker:alice] 周五三号楼配电箱停电检修。\n[speaker:bob] 遇到断电施工时必须提前关闭实验机柜。".into(),
+            source_id: "src_raw_only".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -100,6 +105,7 @@ async fn raw_only_skip_leaves_zero_unrelated_cache_and_subsequent_host_cli_align
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -134,6 +140,7 @@ async fn raw_only_skip_leaves_zero_unrelated_cache_and_subsequent_host_cli_align
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -268,6 +275,11 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
             body: format!(
                 "{bob_constraint_quote}\n{bob_benign_quote}\n{bob_ambig_quote}\n{bob_entails_quote}"
             ),
+            source_id: "src_bob_base".parse()?,
+            author: bob.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -309,6 +321,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -340,6 +353,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -371,6 +385,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -402,6 +417,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(AudienceSpec::AllMembers, t0),
@@ -505,6 +521,11 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
             chunk_id: "a1".into(),
             heading: "alice-private".into(),
             body: format!("{alice_priv_entails_quote}\n{alice_priv_ambig_quote}"),
+            source_id: "src_alice_priv_1".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -543,6 +564,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -571,6 +593,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &alice_priv_opts,
@@ -622,6 +645,11 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
             chunk_id: "a2".into(),
             heading: "alice-edit".into(),
             body: alice_priv_edited_quote.into(),
+            source_id: "src_alice_priv_2".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -659,6 +687,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
             write_op: ModelWriteOp::SupersedeOwn {
                 target_fact_id: alice_ev_entails_id,
             },
+            evidence: None,
         }],
         &edit_opts,
     )?;
@@ -750,6 +779,11 @@ async fn speaker_self_event_with_condition_and_action_stays_event_and_collides()
             chunk_id: "se0".into(),
             heading: "self-schedule".into(),
             body: "我自己周五下午要去低温冷库清点样品。\n进低温冷库作业必须穿防寒服。".into(),
+            source_id: "src_self_event".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -793,6 +827,7 @@ async fn speaker_self_event_with_condition_and_action_stays_event_and_collides()
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -825,6 +860,7 @@ async fn speaker_self_event_with_condition_and_action_stays_event_and_collides()
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -875,6 +911,11 @@ fn nl_funnel_preserves_multi_day_spans_and_never_truncates_multi_token_quotes() 
             chunk_id: "md0".into(),
             heading: "spans".into(),
             body: body.into(),
+            source_id: "src_multiday".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -909,6 +950,7 @@ fn nl_funnel_preserves_multi_day_spans_and_never_truncates_multi_token_quotes() 
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -940,6 +982,7 @@ fn nl_funnel_preserves_multi_day_spans_and_never_truncates_multi_token_quotes() 
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -983,6 +1026,11 @@ fn partial_named_mentions_failure_downgrades_entire_atom_to_self_only_with_diagn
             chunk_id: "pm0".into(),
             heading: "mentions".into(),
             body: body.into(),
+            source_id: "src_partial_mentions".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -1014,6 +1062,7 @@ fn partial_named_mentions_failure_downgrades_entire_atom_to_self_only_with_diagn
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -1041,6 +1090,7 @@ fn partial_named_mentions_failure_downgrades_entire_atom_to_self_only_with_diagn
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -1065,6 +1115,7 @@ fn partial_named_mentions_failure_downgrades_entire_atom_to_self_only_with_diagn
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -1163,6 +1214,11 @@ async fn secondary_premise_validation_blocks_stale_writeback_after_async_judgeme
             heading: "race".into(),
             body: "[speaker:alice] 周五空调机组检修。\n[speaker:bob] 机房升温时暂停压测任务。"
                 .into(),
+            source_id: "src_b2_race".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -1201,6 +1257,7 @@ async fn secondary_premise_validation_blocks_stale_writeback_after_async_judgeme
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -1230,6 +1287,7 @@ async fn secondary_premise_validation_blocks_stale_writeback_after_async_judgeme
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -1297,6 +1355,11 @@ async fn legacy_v1_unbound_alignment_cache_rows_are_ignored_on_upgrade_preservin
             chunk_id: "v1_0".into(),
             heading: "bob".into(),
             body: format!("{bob_rule_quote}\n{bob_benign_ev1}\n{bob_benign_ev2}"),
+            source_id: "src_v1_upgrade".parse()?,
+            author: bob.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -1336,6 +1399,7 @@ async fn legacy_v1_unbound_alignment_cache_rows_are_ignored_on_upgrade_preservin
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -1367,6 +1431,7 @@ async fn legacy_v1_unbound_alignment_cache_rows_are_ignored_on_upgrade_preservin
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -1398,6 +1463,7 @@ async fn legacy_v1_unbound_alignment_cache_rows_are_ignored_on_upgrade_preservin
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(AudienceSpec::AllMembers, t0),
@@ -1543,6 +1609,11 @@ fn nl_funnel_resolves_rescheduled_weekday_to_target_and_preserves_multi_clause_w
             chunk_id: "rm0".into(),
             heading: "schedule".into(),
             body: body.into(),
+            source_id: "src_resched_multi".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -1583,6 +1654,7 @@ fn nl_funnel_resolves_rescheduled_weekday_to_target_and_preserves_multi_clause_w
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             // 2) Multi-clause quote `"周一交提纲，周三做分享"` -> Atom A stays Monday (`2026-11-23`)!
             ModelExtractedAtom {
@@ -1615,6 +1687,7 @@ fn nl_funnel_resolves_rescheduled_weekday_to_target_and_preserves_multi_clause_w
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             // 3) Multi-clause quote `"周一交提纲，周三做分享"` -> Atom B stays Wednesday (`2026-11-25`)!
             ModelExtractedAtom {
@@ -1647,6 +1720,7 @@ fn nl_funnel_resolves_rescheduled_weekday_to_target_and_preserves_multi_clause_w
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -1716,6 +1790,7 @@ fn nl_funnel_resolves_rescheduled_weekday_to_target_and_preserves_multi_clause_w
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from(["alice".parse()?])),
@@ -1784,7 +1859,7 @@ fn expired_lease_commit_staged_extraction_job_fenced_rolls_back_all_fact_and_con
 
     let req = build_extraction_batch_request(
         &store,
-        stored.source_id,
+        stored.source_id.clone(),
         alice.clone(),
         calendar,
         Vec::new(),
@@ -1792,6 +1867,11 @@ fn expired_lease_commit_staged_extraction_job_fenced_rolls_back_all_fact_and_con
             chunk_id: chunk_id.clone(),
             heading: "r7".into(),
             body: body.into(),
+            source_id: stored.source_id.clone(),
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -1828,6 +1908,7 @@ fn expired_lease_commit_staged_extraction_job_fenced_rolls_back_all_fact_and_con
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([alice.clone()])),
@@ -1847,12 +1928,10 @@ fn expired_lease_commit_staged_extraction_job_fenced_rolls_back_all_fact_and_con
     // and leave ZERO facts, ZERO concepts, and ZERO `extracted_chunks` in SQLite!
     assert!(matches!(
         store.commit_staged_extraction_job_fenced(&kp_store::FencedJobCommitSpec {
-            job_id: &job_w1.job_id,
-            expected_attempts: job_w1.attempts,
+            jobs: &[(job_w1.job_id.clone(), job_w1.attempts)],
             lease_now: EpochMs(t0.0 + 2_100),
             batch: &staged_w1,
-            chunk_hashes: std::slice::from_ref(&chunk_sha),
-            author: Some(&alice),
+            chunk_hashes: &[(chunk_sha.clone(), alice.clone())],
             schema_ver: "m1-nl-v1",
             at: EpochMs(t0.0 + 2_100),
         }),
@@ -1864,12 +1943,10 @@ fn expired_lease_commit_staged_extraction_job_fenced_rolls_back_all_fact_and_con
 
     // Worker 2 commits cleanly under `attempts == 2`!
     store.commit_staged_extraction_job_fenced(&kp_store::FencedJobCommitSpec {
-        job_id: &job_w2.job_id,
-        expected_attempts: job_w2.attempts,
+        jobs: &[(job_w2.job_id.clone(), job_w2.attempts)],
         lease_now: EpochMs(t0.0 + 2_200),
         batch: &staged_w1,
-        chunk_hashes: std::slice::from_ref(&chunk_sha),
-        author: Some(&alice),
+        chunk_hashes: &[(chunk_sha.clone(), alice.clone())],
         schema_ver: "m1-nl-v1",
         at: EpochMs(t0.0 + 2_200),
     })?;
@@ -1900,6 +1977,11 @@ async fn ambiguous_scope_review_hides_and_blocks_resolution_after_supporting_mem
             chunk_id: "r11_0".into(),
             heading: "night-shift".into(),
             body: body.into(),
+            source_id: "src_r11_scope".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -1934,6 +2016,7 @@ async fn ambiguous_scope_review_hides_and_blocks_resolution_after_supporting_mem
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -1966,6 +2049,7 @@ async fn ambiguous_scope_review_hides_and_blocks_resolution_after_supporting_mem
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -2184,6 +2268,11 @@ async fn named_endpoint_facts_never_leak_to_global_host_cli_or_foreign_endpoint_
             chunk_id: "cg_0".into(),
             heading: "corp_notice".into(),
             body: "[speaker:alice] 周五三号楼配电箱停电检修。\n[speaker:bob] 遇到断电施工时必须提前关闭实验机柜。".into(),
+            source_id: "src_corp_gw".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;
@@ -2228,6 +2317,7 @@ async fn named_endpoint_facts_never_leak_to_global_host_cli_or_foreign_endpoint_
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -2262,6 +2352,7 @@ async fn named_endpoint_facts_never_leak_to_global_host_cli_or_foreign_endpoint_
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &corp_opts,

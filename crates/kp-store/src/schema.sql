@@ -231,9 +231,12 @@ CREATE TABLE extraction_queue (
     lease_until INTEGER,
     attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
     last_error TEXT,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    thread_key TEXT,
+    reply_to_key TEXT
 );
 CREATE INDEX extraction_queue_sched ON extraction_queue(status, priority DESC, reference_time DESC);
+CREATE INDEX extraction_queue_thread ON extraction_queue(thread_key, reference_time ASC, created_at ASC) WHERE thread_key IS NOT NULL;
 CREATE TABLE extracted_chunks (
     chunk_sha256 TEXT NOT NULL,
     author_actor TEXT NOT NULL,

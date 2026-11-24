@@ -1091,7 +1091,7 @@ impl<T: GitHubTransport> GitHubConnector<T> {
             .unwrap_or("github-user");
         record_gh_identity(proposals, author);
 
-        let (logical_item_key, uri, raw_text) = match stream_name {
+        let (logical_item_key, uri, raw_text, thread_key, reply_to) = match stream_name {
             "issues" => {
                 let number = item.get("number").and_then(Value::as_u64)?;
                 let is_pr = item.get("pull_request").is_some();
@@ -1114,6 +1114,8 @@ impl<T: GitHubTransport> GitHubConnector<T> {
                     format!("gh:{owner}/{repo}:{kind_tag}:{number}"),
                     html_url,
                     combined,
+                    Some(format!("{owner}/{repo}#{number}")),
+                    None,
                 )
             }
             "issue_comments" | "pull_comments" => {
@@ -1130,10 +1132,44 @@ impl<T: GitHubTransport> GitHubConnector<T> {
                 } else {
                     body.to_owned()
                 };
+                let number_opt = item
+                    .get("issue_number")
+                    .or_else(|| item.get("pull_request_number"))
+                    .and_then(Value::as_u64)
+                    .or_else(|| {
+                        [
+                            item.get("issue_url").and_then(Value::as_str),
+                            item.get("pull_request_url").and_then(Value::as_str),
+                            item.get("html_url").and_then(Value::as_str),
+                        ]
+                        .into_iter()
+                        .flatten()
+                        .find_map(extract_github_thread_number)
+                    });
+                let thread_key = number_opt
+                    .map(|n| format!("{owner}/{repo}#{n}"))
+                    .or_else(|| {
+                        item.get("pull_request_review_id")
+                            .and_then(Value::as_u64)
+                            .map(|rid| format!("{owner}/{repo}#review-{rid}"))
+                    });
+                let reply_to =
+                    item.get("in_reply_to_id")
+                        .and_then(Value::as_u64)
+                        .map(|parent_id| {
+                            let base_key = format!("gh:{owner}/{repo}:{stream_name}:{parent_id}");
+                            checkpoint
+                                .known_items
+                                .get(&base_key)
+                                .map(|s| s.active_key.clone())
+                                .unwrap_or(base_key)
+                        });
                 (
                     format!("gh:{owner}/{repo}:{stream_name}:{id}"),
                     html_url,
                     text,
+                    thread_key,
+                    reply_to,
                 )
             }
             "releases" => {
@@ -1152,24 +1188,71 @@ impl<T: GitHubTransport> GitHubConnector<T> {
                     format!("gh:{owner}/{repo}:release:{id}"),
                     html_url,
                     format!("Release {name} ({tag})\n\n{body}"),
+                    None,
+                    None,
                 )
             }
             _ => return None,
         };
 
         let clean_text = redactor.redact(raw_text.trim());
-        if is_low_signal_ack(&clean_text) {
+        let known_prev = checkpoint.known_items.get(&logical_item_key).cloned();
+        if clean_text.trim().is_empty() {
+            if let Some(prev) = known_prev {
+                if !prev.content_sha256.is_empty() {
+                    batch.events.push(IngestedSourceEvent {
+                        external_key: prev.active_key.clone(),
+                        uri,
+                        media_type: "text/markdown".into(),
+                        speaker_external_id: author.to_owned(),
+                        speaker_display_name: author.to_owned(),
+                        ingested_by: ingested_by.clone(),
+                        source_scope_id: scope.source_scope_id.clone(),
+                        content: String::new(),
+                        event_op: SourceEventOp::Withdraw,
+                        occurred_at: updated_ms,
+                        model_policy: scope.model_policy.clone(),
+                        thread_key,
+                        reply_to,
+                    });
+                    checkpoint.known_items.insert(
+                        logical_item_key,
+                        GitHubItemState {
+                            active_key: prev.active_key,
+                            content_sha256: String::new(),
+                            updated_at_ms: updated_ms.0,
+                            revision: prev.revision,
+                        },
+                    );
+                    return Some(updated_ms);
+                }
+            }
+            batch.skipped_low_signal += 1;
+            return Some(updated_ms);
+        }
+        if is_low_signal_ack(&clean_text)
+            && known_prev.is_none()
+            && thread_key.is_none()
+            && reply_to.is_none()
+        {
             batch.skipped_low_signal += 1;
             return Some(updated_ms);
         }
 
         let content_sha = ContentHash::digest(clean_text.as_bytes()).to_string();
-        if let Some(prev) = checkpoint.known_items.get(&logical_item_key).cloned() {
+        if let Some(prev) = known_prev {
             if prev.content_sha256 == content_sha && prev.updated_at_ms >= updated_ms.0 {
                 return Some(updated_ms);
             }
             let next_rev = prev.revision.saturating_add(1);
             let next_key = format!("{logical_item_key}@rev{next_rev}");
+            let event_op = if prev.content_sha256.is_empty() {
+                SourceEventOp::Upsert
+            } else {
+                SourceEventOp::Supersede {
+                    previous_external_key: prev.active_key,
+                }
+            };
             batch.events.push(IngestedSourceEvent {
                 external_key: next_key.clone(),
                 uri,
@@ -1179,11 +1262,11 @@ impl<T: GitHubTransport> GitHubConnector<T> {
                 ingested_by: ingested_by.clone(),
                 source_scope_id: scope.source_scope_id.clone(),
                 content: clean_text,
-                event_op: SourceEventOp::Supersede {
-                    previous_external_key: prev.active_key,
-                },
+                event_op,
                 occurred_at: updated_ms,
                 model_policy: scope.model_policy.clone(),
+                thread_key,
+                reply_to,
             });
             checkpoint.known_items.insert(
                 logical_item_key,
@@ -1207,6 +1290,8 @@ impl<T: GitHubTransport> GitHubConnector<T> {
                 event_op: SourceEventOp::Upsert,
                 occurred_at: updated_ms,
                 model_policy: scope.model_policy.clone(),
+                thread_key,
+                reply_to,
             });
             checkpoint.known_items.insert(
                 logical_item_key.clone(),
@@ -1221,6 +1306,19 @@ impl<T: GitHubTransport> GitHubConnector<T> {
 
         Some(updated_ms)
     }
+}
+
+fn extract_github_thread_number(url: &str) -> Option<u64> {
+    let before_frag = url.split(['#', '?']).next().unwrap_or(url);
+    let segments: Vec<&str> = before_frag.split('/').filter(|s| !s.is_empty()).collect();
+    for pair in segments.windows(2) {
+        if matches!(pair[0], "issues" | "pulls" | "pull") {
+            if let Ok(num) = pair[1].parse::<u64>() {
+                return Some(num);
+            }
+        }
+    }
+    None
 }
 
 struct GitHubSyncCtx<'a> {

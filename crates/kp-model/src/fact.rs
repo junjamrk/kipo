@@ -206,6 +206,59 @@ pub struct AnchorSpec {
     pub char_end: Option<u32>,
 }
 
+pub fn is_byte_identical_media_type(media_type: &str) -> bool {
+    let base = media_type.split(';').next().unwrap_or("").trim();
+    matches!(
+        base,
+        "text/markdown" | "text/plain" | "text/x-source" | "text/csv"
+    )
+}
+
+impl AnchorSpec {
+    pub fn quote_in_chunk(
+        source_id: SourceId,
+        chunk_id: String,
+        base: &AnchorSpec,
+        verified: &VerifiedQuoteMatch,
+        chunk_body_hash: ContentHash,
+        byte_identical_source: bool,
+    ) -> Self {
+        let (start_byte, end_byte) = if byte_identical_source {
+            let offset = base.start_byte.unwrap_or(0);
+            (
+                offset.checked_add(verified.byte_start),
+                offset.checked_add(verified.byte_end),
+            )
+        } else {
+            (None, None)
+        };
+        Self {
+            file_path: base.file_path.clone(),
+            paragraph: base.paragraph,
+            slide: base.slide,
+            sheet: base.sheet.clone(),
+            cell: base.cell.clone(),
+            source_id: Some(source_id),
+            page: base.page,
+            bbox: base.bbox,
+            start_line: base.start_line,
+            end_line: base.end_line,
+            start_byte,
+            end_byte,
+            start_ms: None,
+            end_ms: None,
+            commit_sha: base.commit_sha.clone(),
+            symbol: base.symbol.clone(),
+            sig_hash: base.sig_hash.clone(),
+            body_hash: Some(chunk_body_hash),
+            chunk_id: Some(chunk_id),
+            verbatim_quote: Some(verified.exact_quote.clone()),
+            char_start: Some(verified.span.char_start),
+            char_end: Some(verified.span.char_end),
+        }
+    }
+}
+
 /// Optional disambiguation hint when the same quote appears more than once in a chunk.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuoteLocationHint {

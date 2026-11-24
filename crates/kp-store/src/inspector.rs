@@ -1381,6 +1381,8 @@ mod tests {
                 ingested_by: None,
                 media_type: None,
                 model_policy: Some(ModelRoutePolicy::RawOnly),
+                thread_key: None,
+                reply_to: None,
             },
             &alice,
             &ModelRoutePolicy::HostCli,

@@ -272,10 +272,17 @@ pub fn build_extraction_batch_request_for_policy(
     let graph = store.derivation_view()?;
     let mut batch_speakers = BTreeSet::from([speaker.clone()]);
     for chunk in &chunks {
-        for turn in kp_model::parse_tagged_turns(&chunk.body) {
-            if let (Some(actor), false) = (turn.speaker, turn.is_assistant) {
-                batch_speakers.insert(actor);
+        if chunk.role != kp_model::SliceRole::Target {
+            continue;
+        }
+        if kp_model::has_tagged_turns(&chunk.body) {
+            for turn in kp_model::parse_tagged_turns(&chunk.body) {
+                if let (Some(actor), false) = (turn.speaker, turn.is_assistant) {
+                    batch_speakers.insert(actor);
+                }
             }
+        } else {
+            batch_speakers.insert(chunk.author.clone());
         }
     }
 
@@ -468,6 +475,11 @@ pub fn build_token_budgeted_turn_batches(
             .unwrap_or_else(|| spec.default_speaker.clone());
         let chunk = ExtractionChunkSlice {
             chunk_id: format!("tb_{idx}"),
+            source_id: spec.source_id.clone(),
+            author: primary_speaker.clone(),
+            base_anchor: Default::default(),
+            role: kp_model::SliceRole::Target,
+            reply_to_chunk_id: None,
             heading: spec.heading.clone(),
             body,
         };
@@ -841,6 +853,11 @@ mod tests {
                 chunk_id: "c_multi".into(),
                 heading: "20-turn window".into(),
                 body,
+                source_id: "src_dup_batch".parse()?,
+                author: alice.clone(),
+                base_anchor: Default::default(),
+                role: Default::default(),
+                reply_to_chunk_id: None,
             }],
             5,
         )?;
@@ -876,6 +893,7 @@ mod tests {
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         };
         let event_missing_cond = ModelExtractedAtom {
             condition_concept: None,
@@ -903,6 +921,7 @@ mod tests {
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         };
         let bad_date_atom = ModelExtractedAtom {
             kind: FactKind::Event,
@@ -934,6 +953,7 @@ mod tests {
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         };
         let valid_erin = ModelExtractedAtom {
             // Even when model labels a scoped condition+action rule as `"observation"`,
@@ -970,6 +990,7 @@ mod tests {
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         };
         let bad_membership = ModelExtractedAtom {
             kind: FactKind::Membership,
@@ -997,6 +1018,7 @@ mod tests {
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         };
 
         // 1) Security boundary violations (`speaker`, `write_op`, `assumed_premise_ids`)
@@ -1103,6 +1125,11 @@ mod tests {
                     chunk_id: "c_ext".into(),
                     heading: "PR comment".into(),
                     body: ext_body.into(),
+                    source_id: "src_gh_ext".parse()?,
+                    author: stranger.clone(),
+                    base_anchor: Default::default(),
+                    role: Default::default(),
+                    reply_to_chunk_id: None,
                 }],
                 min_rate_limit_remaining_pct: 5,
             },
@@ -1130,6 +1157,7 @@ mod tests {
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             }
         };
 
@@ -1189,6 +1217,11 @@ mod tests {
                     chunk_id: "c_web".into(),
                     heading: "Web page".into(),
                     body: web_body.into(),
+                    source_id: "src_http_page".parse()?,
+                    author: alice.clone(),
+                    base_anchor: Default::default(),
+                    role: Default::default(),
+                    reply_to_chunk_id: None,
                 }],
                 min_rate_limit_remaining_pct: 5,
             },

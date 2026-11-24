@@ -755,6 +755,8 @@ fn visible_change_log_enforces_strict_viewer_and_departed_container_isolation() 
             ingested_by: None,
             media_type: None,
             model_policy: Some(ModelRoutePolicy::RawOnly),
+            thread_key: None,
+            reply_to: None,
         },
         &alice,
         &ModelRoutePolicy::HostCli,

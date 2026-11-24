@@ -487,6 +487,11 @@ async fn feishu_lark_cli_transport_blocks_writes_discovers_nvm_bin_and_reads_min
     let min_batch = min_connector
         .poll_incremental(&min_scope, &ConnectorCursor::default(), &alice)
         .await?;
+    assert_eq!(min_batch.scope_rosters.len(), 1);
+    assert_eq!(
+        min_batch.scope_rosters[0].scope_id.as_str(),
+        "feishu.minutes.obcn_min1"
+    );
     assert_eq!(min_batch.events.len(), 1);
     assert!(min_batch.events[0]
         .content
@@ -633,8 +638,12 @@ async fn feishu_m3_cross_group_cutover_thread_replies_departure_edit_and_recall(
         .poll_incremental(&eng_scope, &ConnectorCursor::default(), &importer_alice)
         .await?;
 
-    assert_eq!(pm_batch_1.skipped_low_signal, 2);
-    assert_eq!(pm_batch_1.events.len(), 1);
+    assert_eq!(pm_batch_1.skipped_low_signal, 0);
+    assert_eq!(pm_batch_1.events.len(), 3);
+    assert!(pm_batch_1
+        .events
+        .iter()
+        .all(|e| e.thread_key.as_deref() == Some("chat:oc_pm_release")));
     let cutover_ev = &pm_batch_1.events[0];
     assert_eq!(cutover_ev.content, "下周四凌晨两点数据库主从切换");
     assert_eq!(cutover_ev.speaker_external_id, "ou_pm_li");
@@ -647,13 +656,29 @@ async fn feishu_m3_cross_group_cutover_thread_replies_departure_edit_and_recall(
     assert_eq!(cutover_origin.ingested_by, importer_alice);
     assert_ne!(cutover_origin.speaker, cutover_origin.ingested_by);
 
-    assert_eq!(eng_batch_1.skipped_low_signal, 1);
-    assert_eq!(eng_batch_1.events.len(), 2);
+    assert_eq!(eng_batch_1.skipped_low_signal, 0);
+    assert_eq!(eng_batch_1.events.len(), 3);
     let policy_ev = eng_batch_1
         .events
         .iter()
         .find(|e| e.external_key == "om_eng_2001")
         .ok_or_else(|| ConnectError::Transport("missing thread reply om_eng_2001".into()))?;
+    assert_eq!(
+        policy_ev.thread_key.as_deref(),
+        Some("omt_eng_cutover_thread")
+    );
+    assert_eq!(policy_ev.reply_to.as_deref(), Some("om_eng_2000_root"));
+    let ack_reply_ev = eng_batch_1
+        .events
+        .iter()
+        .find(|e| e.external_key == "om_eng_2002")
+        .ok_or_else(|| ConnectError::Transport("missing thread ack reply om_eng_2002".into()))?;
+    assert_eq!(ack_reply_ev.content, "明白");
+    assert_eq!(
+        ack_reply_ev.thread_key.as_deref(),
+        Some("omt_eng_cutover_thread")
+    );
+    assert_eq!(ack_reply_ev.reply_to.as_deref(), Some("om_eng_2001"));
     assert_eq!(policy_ev.content, "主从切换窗口禁止跑批处理任务");
     assert_eq!(policy_ev.speaker_external_id, "ou_lead_wang");
     assert_eq!(policy_ev.speaker_display_name, "王五");
@@ -1658,7 +1683,7 @@ async fn connector_state_store_and_public_ingest_jsonl_contract_decouple_from_st
     assert!(state_file.is_file());
     let jsonl_1 = b1.to_public_jsonl_string(ConnectorKind::Feishu, &confirmed)?;
     let parsed_1 = parse_public_jsonl_str(&jsonl_1)?;
-    assert_eq!(parsed_1.len(), 2);
+    assert_eq!(parsed_1.len(), 4);
     match &parsed_1[0] {
         PublicIngestLine::ContainerRoster(r) => {
             assert_eq!(r.container_id, "feishu.chat.oc_pm_release");
@@ -2028,8 +2053,8 @@ esac
     let stdout_lines = parse_public_jsonl_str(&String::from_utf8_lossy(&stdout_sync.stdout))?;
     assert_eq!(
         stdout_lines.len(),
-        6,
-        "expected 3 rosters + 3 records across feishu, github, and agent-session"
+        8,
+        "expected 3 rosters + 5 records across feishu, github, and agent-session"
     );
     assert!(
         ConnectorStateStore::new(&state_path)
@@ -2072,7 +2097,7 @@ esac
     let sync_summary: Value = serde_json::from_slice(&ok_sync.stdout)?;
     assert_eq!(sync_summary["scopes_polled"], 3);
     assert_eq!(sync_summary["rosters_emitted"], 3);
-    assert_eq!(sync_summary["records_emitted"], 3);
+    assert_eq!(sync_summary["records_emitted"], 5);
     assert_eq!(sync_summary["cursors_committed"], 3);
     assert!(sync_summary["skipped_low_signal"].as_u64().unwrap_or(0) >= 2);
     assert_eq!(
@@ -2089,7 +2114,7 @@ esac
     assert!(kp_args_seen.contains("ingest -"));
 
     let wave1_piped = parse_public_jsonl_str(&fs::read_to_string(&captured_pipe)?)?;
-    assert_eq!(wave1_piped.len(), 6);
+    assert_eq!(wave1_piped.len(), 8);
     let mut saw_feishu_inherit = false;
     let mut saw_gh_endpoint = false;
     let mut saw_session_raw = false;
@@ -2097,10 +2122,13 @@ esac
         if let PublicIngestLine::Record(rec) = item {
             match rec.source.kind.as_str() {
                 "feishu" => {
-                    assert_eq!(rec.speaker.id, "pm_li");
                     assert_eq!(rec.op, PublicIngestOp::Upsert);
                     assert_eq!(rec.model_policy, None);
-                    saw_feishu_inherit = true;
+                    assert_eq!(rec.thread_key.as_deref(), Some("chat:oc_pm_release"));
+                    if rec.source.external_id == "om_pm_1001" {
+                        assert_eq!(rec.speaker.id, "pm_li");
+                        saw_feishu_inherit = true;
+                    }
                 }
                 "github" => {
                     assert_eq!(rec.op, PublicIngestOp::Upsert);

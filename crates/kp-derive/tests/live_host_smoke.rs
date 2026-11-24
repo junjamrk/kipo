@@ -170,6 +170,11 @@ async fn extract_single_case(
             chunk_id: format!("c{case_no}"),
             heading: label.into(),
             body,
+            source_id: format!("src_case_{case_no}").parse()?,
+            author: primary_speaker.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         5,
     )?;

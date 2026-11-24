@@ -198,6 +198,8 @@ fn reembed_stale_migrates_dimensions_protects_raw_only_sources_from_cloud_and_su
         ingested_by: Some(owner.clone()),
         media_type: Some("text/plain".into()),
         model_policy: Some(ModelRoutePolicy::RawOnly),
+        thread_key: None,
+        reply_to: None,
     };
     let raw_out =
         store.apply_public_ingest_record(&raw_only_rec, &owner, &ModelRoutePolicy::HostCli)?;
@@ -420,6 +422,8 @@ fn public_ingest_contract_handles_roster_identity_mapping_upsert_supersede_and_w
         ingested_by: Some(owner.clone()),
         media_type: Some("text/plain".into()),
         model_policy: None,
+        thread_key: None,
+        reply_to: None,
     };
     let out1 = store.apply_public_ingest_record(&upsert_100, &owner, &ModelRoutePolicy::HostCli)?;
     assert_eq!(out1.kind, PublicRecordAppliedKind::Upserted);
@@ -617,6 +621,8 @@ fn m2_r1_public_ingest_authorization_anti_rollback_redaction_and_policy_narrowin
         ingested_by: Some(owner.clone()),
         media_type: None,
         model_policy: None,
+        thread_key: None,
+        reply_to: None,
     };
     assert!(matches!(
         store.apply_public_ingest_record(&bob_forged_ingester, &bob, &ModelRoutePolicy::HostCli),
@@ -648,6 +654,8 @@ fn m2_r1_public_ingest_authorization_anti_rollback_redaction_and_policy_narrowin
         ingested_by: None,
         media_type: None,
         model_policy: None,
+        thread_key: None,
+        reply_to: None,
     };
     assert!(matches!(
         store.apply_public_ingest_record(&bob_removed_container, &bob, &ModelRoutePolicy::HostCli),
@@ -674,6 +682,8 @@ fn m2_r1_public_ingest_authorization_anti_rollback_redaction_and_policy_narrowin
         ingested_by: None,
         media_type: None,
         model_policy: None,
+        thread_key: None,
+        reply_to: None,
     };
     let alice_out =
         store.apply_public_ingest_record(&alice_msg, &alice, &ModelRoutePolicy::HostCli)?;
@@ -773,6 +783,8 @@ fn m2_r1_public_ingest_authorization_anti_rollback_redaction_and_policy_narrowin
         ingested_by: None,
         media_type: None,
         model_policy: Some(ModelRoutePolicy::NamedEndpoint("ep-alpha".into())),
+        thread_key: None,
+        reply_to: None,
     };
     let p_out = store.apply_public_ingest_record(&p_rec, &owner, &ModelRoutePolicy::HostCli)?;
     let p_sid = p_out.source_id.ok_or(StoreError::NotFound)?;
@@ -873,6 +885,8 @@ fn m2_r1_public_session_subbatch_shares_identity_enforces_raw_only_cloud_gate_an
         ingested_by: None,
         media_type: Some("text/plain".into()),
         model_policy: None,
+        thread_key: None,
+        reply_to: None,
     };
     let (stored_raw, newly) =
         store.ingest_public_session_subbatch(&crate::PublicSessionSubbatchSpec {
@@ -936,6 +950,14 @@ fn m2_r1_m1_v1_database_and_raw_git_migrate_smoothly_to_v2_and_purge_zero_residu
         )
         .replace(
             ",\n    model_id TEXT NOT NULL DEFAULT 'hash:v1'",
+            "",
+        )
+        .replace(
+            ",\n    thread_key TEXT,\n    reply_to_key TEXT",
+            "",
+        )
+        .replace(
+            "\nCREATE INDEX extraction_queue_thread ON extraction_queue(thread_key, reference_time ASC, created_at ASC) WHERE thread_key IS NOT NULL;",
             "",
         );
     let m1_lib_id: kp_model::LibraryId = "m1-lib".parse()?;
@@ -1270,6 +1292,8 @@ fn m2_r2_duplicate_upsert_spoofing_supersede_preauth_named_endpoint_and_leased_r
         ingested_by: None,
         media_type: None,
         model_policy: None,
+        thread_key: None,
+        reply_to: None,
     };
     let s1_out =
         store.apply_public_ingest_record(&alice_rec, &alice, &ModelRoutePolicy::HostCli)?;
@@ -1355,6 +1379,8 @@ fn m2_r2_duplicate_upsert_spoofing_supersede_preauth_named_endpoint_and_leased_r
         ingested_by: None,
         media_type: None,
         model_policy: Some(ModelRoutePolicy::NamedEndpoint("host".into())),
+        thread_key: None,
+        reply_to: None,
     };
     let ep_out =
         store.apply_public_ingest_record(&ep_host_rec, &owner, &ModelRoutePolicy::HostCli)?;
@@ -1443,12 +1469,10 @@ fn m2_r2_duplicate_upsert_spoofing_supersede_preauth_named_endpoint_and_leased_r
 
     assert!(matches!(
         store.commit_staged_extraction_job_fenced(&crate::FencedJobCommitSpec {
-            job_id: &leased_s1.job_id,
-            expected_attempts: leased_s1.attempts,
+            jobs: &[(leased_s1.job_id.clone(), leased_s1.attempts)],
             lease_now: EpochMs(2_100),
             batch: &crate::StagedExtractionBatch::default(),
             chunk_hashes: &[],
-            author: None,
             schema_ver: "",
             at: EpochMs(2_100),
         }),
@@ -1575,6 +1599,8 @@ fn m2_r3_legacy_named_endpoint_queue_repair_idempotent_replay_and_derived_vector
         ingested_by: None,
         media_type: None,
         model_policy: Some(ModelRoutePolicy::NamedEndpoint("host".into())),
+        thread_key: None,
+        reply_to: None,
     };
     let out_host =
         store.apply_public_ingest_record(&rec_named_host, &owner, &ModelRoutePolicy::HostCli)?;
@@ -1603,6 +1629,8 @@ fn m2_r3_legacy_named_endpoint_queue_repair_idempotent_replay_and_derived_vector
         ingested_by: None,
         media_type: None,
         model_policy: Some(ModelRoutePolicy::NamedEndpoint("corp-gw".into())),
+        thread_key: None,
+        reply_to: None,
     };
     let out_corp =
         store.apply_public_ingest_record(&rec_corp, &owner, &ModelRoutePolicy::HostCli)?;
@@ -1692,6 +1720,8 @@ fn m2_r3_legacy_named_endpoint_queue_repair_idempotent_replay_and_derived_vector
         model_policy: Some(ModelRoutePolicy::NamedEndpoint(
             "named_endpoint:corp-gw".into(),
         )),
+        thread_key: None,
+        reply_to: None,
     };
     let out_sp = reopened.apply_public_ingest_record(
         &rec_self_prefixed,

@@ -161,7 +161,7 @@ fn extract_from_public_source(
     let ctx = store
         .extraction_source_context(source_id, std::slice::from_ref(&first_cid))?
         .ok_or("missing ingested demo source context")?;
-    let (cid, heading, body) = ctx
+    let (cid, heading, body, base_anchor) = ctx
         .chunks
         .first()
         .cloned()
@@ -176,6 +176,11 @@ fn extract_from_public_source(
         active_concepts,
         vec![ExtractionChunkSlice {
             chunk_id: cid.clone(),
+            source_id: source_id.clone(),
+            author: speaker.clone(),
+            base_anchor,
+            role: Default::default(),
+            reply_to_chunk_id: None,
             heading,
             body,
         }],
@@ -186,7 +191,11 @@ fn extract_from_public_source(
         audience: ctx.readable_by,
         at,
         route_policy: ModelRoutePolicy::HostCli,
-        source_trust_floor: NlFunnelOptions::trust_floor_for_uri(&ctx.uri),
+        source_trust_floor: if scope_id.is_some() {
+            kp_model::TrustTier::ToolOrModelVerified
+        } else {
+            NlFunnelOptions::trust_floor_for_uri(&ctx.uri)
+        },
         source_origin: scope_id.map(|sid| SourceOriginMeta {
             speaker: speaker.clone(),
             ingested_by: ingested_by.clone(),
@@ -400,6 +409,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             }]
         },
     )?;
@@ -442,6 +452,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             }]
         },
     )?;
@@ -487,6 +498,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                     write_op: ModelWriteOp::SupersedeOwn {
                         target_fact_id: superseded_premise_id.clone(),
                     },
+                    evidence: None,
                 },
                 ModelExtractedAtom {
                     kind: FactKind::Observation,
@@ -509,6 +521,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                         approx_char_offset: None,
                     },
                     write_op: ModelWriteOp::Add,
+                    evidence: None,
                 },
             ]
         },
@@ -574,6 +587,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             }]
         },
     )?;
@@ -615,6 +629,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             }]
         },
     )?;
@@ -663,6 +678,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             }]
         },
     )?;
@@ -709,6 +725,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                         approx_char_offset: None,
                     },
                     write_op: ModelWriteOp::Add,
+                    evidence: None,
                 },
                 ModelExtractedAtom {
                     kind: FactKind::Constraint,
@@ -751,6 +768,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                         approx_char_offset: None,
                     },
                     write_op: ModelWriteOp::Add,
+                    evidence: None,
                 },
             ]
         },

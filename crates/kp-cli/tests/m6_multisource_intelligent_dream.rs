@@ -39,6 +39,14 @@ fn extract_chunk_id(prompt: &str) -> String {
     "c-0".to_owned()
 }
 
+fn extract_target_chunk_ids(prompt: &str) -> Vec<String> {
+    prompt
+        .split("<chunk id=\"")
+        .skip(1)
+        .filter_map(|seg| seg.find('"').map(|end| seg[..end].to_owned()))
+        .collect()
+}
+
 async fn mock_chat_completions(
     State(state): State<MockLlmState>,
     Json(body): Json<Value>,
@@ -129,6 +137,40 @@ async fn mock_chat_completions(
                         "write_op": {"op": "add", "target_fact_id": null}
                     }
                 ]
+            })
+        } else if user_text.contains("Should we forbid `cargo publish` without `--dry-run`?") {
+            let cids = extract_target_chunk_ids(&user_text);
+            let ev_cid = cids.first().cloned().unwrap_or_else(|| cid.clone());
+            let auth_cid = cids.get(2).cloned().unwrap_or(cid);
+            json!({
+                "skip_summary": false,
+                "atoms": [{
+                    "kind": "decision",
+                    "claim_text": "Forbid cargo publish without --dry-run",
+                    "value_json": json!({"forbidden_commands": ["cargo publish"]}).to_string(),
+                    "scope": null,
+                    "ambiguous_scope": null,
+                    "condition_concept": null,
+                    "action_concept": null,
+                    "group_concept": null,
+                    "member_mention": null,
+                    "valid_dates": null,
+                    "speaker": "bob",
+                    "assumed_premise_ids": [],
+                    "quote": {
+                        "chunk_id": auth_cid,
+                        "verbatim_quote": "lgtm",
+                        "turn_ordinal": 0,
+                        "approx_char_offset": None::<u32>
+                    },
+                    "evidence": {
+                        "chunk_id": ev_cid,
+                        "verbatim_quote": "Should we forbid `cargo publish` without `--dry-run`?",
+                        "turn_ordinal": 0,
+                        "approx_char_offset": None::<u32>
+                    },
+                    "write_op": {"op": "add", "target_fact_id": null}
+                }]
             })
         } else {
             json!({"skip_summary": true, "atoms": []})
@@ -761,5 +803,181 @@ async fn session_end_hook_spawns_detached_background_dream_and_cleans_lockfile()
         promoted_bg,
         "detached background `kp dream --background` must promote corroborated session skill and remove lockfile"
     );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn wave2a_cli_chat_window_ratification_and_withdrawal_e2e() -> Result {
+    let dir = tempfile::tempdir()?;
+    let lib = dir.path().join("wave2a_e2e_lib");
+    run(
+        &lib,
+        &[
+            "init",
+            "--owner",
+            "alice",
+            "--community",
+            "--embedding-model",
+            "hash:v1",
+        ],
+    )?;
+    run(
+        &lib,
+        &[
+            "--as",
+            "alice",
+            "member",
+            "add",
+            "bob",
+            "--role",
+            "maintainer",
+        ],
+    )?;
+    run(
+        &lib,
+        &[
+            "--as", "alice", "member", "add", "carol", "--role", "member",
+        ],
+    )?;
+
+    let llm_state = MockLlmState::default();
+    let app = Router::new()
+        .route("/v1/chat/completions", post(mock_chat_completions))
+        .with_state(llm_state.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    let srv = tokio::spawn(async move { axum::serve(listener, app).await });
+
+    let chat_jsonl = dir.path().join("feishu_thread.jsonl");
+    let lines = [
+        json!({
+            "container_id": "feishu.chat.oc_release",
+            "label": "Release Room",
+            "members": ["alice", "bob", "carol"],
+            "all_library_members": false,
+            "synced_at": 1_764_200_000_000_i64
+        }),
+        json!({
+            "source": {"kind": "feishu", "uri": "feishu://chat/oc_release/om_prop_1", "external_id": "om_prop_1", "container_id": "feishu.chat.oc_release"},
+            "speaker": "alice",
+            "audience": "container_members",
+            "occurred_at": 1_764_200_001_000_i64,
+            "content": "Should we forbid `cargo publish` without `--dry-run`?",
+            "op": "upsert",
+            "thread_key": "omt_release_thread"
+        }),
+        json!({
+            "source": {"kind": "feishu", "uri": "feishu://chat/oc_release/om_ack_carol", "external_id": "om_ack_carol", "container_id": "feishu.chat.oc_release"},
+            "speaker": "carol",
+            "audience": "container_members",
+            "occurred_at": 1_764_200_002_000_i64,
+            "content": "+1",
+            "op": "upsert",
+            "thread_key": "omt_release_thread"
+        }),
+        json!({
+            "source": {"kind": "feishu", "uri": "feishu://chat/oc_release/om_ratify_bob", "external_id": "om_ratify_bob", "container_id": "feishu.chat.oc_release"},
+            "speaker": "bob",
+            "audience": "container_members",
+            "occurred_at": 1_764_200_003_000_i64,
+            "content": "lgtm",
+            "op": "upsert",
+            "thread_key": "omt_release_thread"
+        }),
+    ]
+    .iter()
+    .map(Value::to_string)
+    .collect::<Vec<_>>()
+    .join("\n");
+    fs::write(&chat_jsonl, format!("{lines}\n"))?;
+
+    let _ = success(
+        Command::new(env!("CARGO_BIN_EXE_kp"))
+            .env("KP_GENERATIVE_MODEL", "openai:gpt-4o-mini")
+            .env("OPENAI_BASE_URL", format!("http://{addr}/v1"))
+            .env("OPENAI_API_KEY", "sk-test-local-gateway-key")
+            .env("KP_NO_AUTO_DREAM", "1")
+            .arg("--path")
+            .arg(&lib)
+            .args([
+                "--as",
+                "alice",
+                "--json",
+                "ingest",
+                chat_jsonl.to_str().ok_or("utf8")?,
+            ])
+            .output()?,
+    )?;
+
+    let extract_res = success(
+        Command::new(env!("CARGO_BIN_EXE_kp"))
+            .env("KP_GENERATIVE_MODEL", "openai:gpt-4o-mini")
+            .env("OPENAI_BASE_URL", format!("http://{addr}/v1"))
+            .env("OPENAI_API_KEY", "sk-test-local-gateway-key")
+            .env("KP_NO_AUTO_DREAM", "1")
+            .arg("--path")
+            .arg(&lib)
+            .args(["--as", "alice", "--json", "extract", "--max-jobs", "10"])
+            .output()?,
+    )?;
+    assert_eq!(
+        llm_state.extraction_calls.load(Ordering::SeqCst),
+        1,
+        "all 3 same-thread chat messages must batch into 1 LLM call: {extract_res}"
+    );
+    assert_eq!(extract_res["jobs_processed"], 3);
+    assert_eq!(
+        extract_res["created_facts"].as_array().map(Vec::len),
+        Some(1)
+    );
+    let decision_id: FactId = extract_res["created_facts"][0]
+        .as_str()
+        .ok_or("decision_id")?
+        .parse()?;
+
+    {
+        let ro = Store::open_readonly(&lib)?;
+        let fact = &ro.derivation_view()?.facts[&decision_id];
+        assert_eq!(fact.author.as_str(), "bob");
+        assert_eq!(fact.kind, FactKind::Decision);
+        assert_eq!(fact.status, FactStatus::Active);
+        assert!(fact.object.get("evidence_anchor").is_some());
+    }
+
+    let withdraw_jsonl = dir.path().join("withdraw_prop.jsonl");
+    fs::write(
+        &withdraw_jsonl,
+        format!(
+            "{}\n",
+            json!({
+                "source": {"kind": "feishu", "uri": "feishu://chat/oc_release/om_prop_1", "external_id": "om_prop_1", "container_id": "feishu.chat.oc_release"},
+                "speaker": "alice",
+                "audience": "container_members",
+                "occurred_at": 1_764_200_010_000_i64,
+                "content": "",
+                "op": "withdraw",
+                "thread_key": "omt_release_thread"
+            })
+        ),
+    )?;
+    run(
+        &lib,
+        &[
+            "--as",
+            "alice",
+            "ingest",
+            withdraw_jsonl.to_str().ok_or("utf8")?,
+        ],
+    )?;
+
+    {
+        let ro = Store::open_readonly(&lib)?;
+        assert_eq!(
+            ro.derivation_view()?.facts[&decision_id].status,
+            FactStatus::Withdrawn
+        );
+    }
+
+    srv.abort();
     Ok(())
 }

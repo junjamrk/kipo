@@ -165,6 +165,7 @@ impl Store {
         if version == 1 {
             migrations::migrate_v1_to_v2(&mut db, path)?;
         } else if version == migrations::VERSION {
+            migrations::ensure_v2_queue_columns(&mut db)?;
             if path.join("raw").exists() {
                 migrations::finalize_legacy_raw_dir(&mut db, path)?;
             }

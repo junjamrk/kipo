@@ -22,6 +22,7 @@ pub struct RawSourceInput {
     pub chunks: Vec<ChunkInput>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct ChunkInput {
     pub heading: String,
     pub body: String,
@@ -598,7 +599,9 @@ impl Store {
             }
         };
 
-        let _ = crate::queue::enqueue_or_rearm_extraction_job_tx(&tx, &source_id, job_input)?;
+        let _ = crate::queue::enqueue_or_rearm_extraction_job_tx(
+            &tx, &source_id, job_input, None, None,
+        )?;
         crate::queue::record_session_source_span_tx(
             &tx, &source_id, session_id, start_byte, end_byte, at,
         )?;

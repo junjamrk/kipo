@@ -350,6 +350,19 @@ fn compute_extracted_fact_audience(
     AudienceSpec::Explicit(expanded)
 }
 
+fn is_slice_byte_identical(store: &Store, slice: &kp_model::ExtractionChunkSlice) -> Result<bool> {
+    if let Some(mt) = store.source_media_type(&slice.source_id)? {
+        Ok(kp_model::is_byte_identical_media_type(&mt))
+    } else {
+        let base = &slice.base_anchor;
+        Ok(base.page.is_none()
+            && base.slide.is_none()
+            && base.sheet.is_none()
+            && base.cell.is_none()
+            && base.paragraph.is_none())
+    }
+}
+
 fn stage_extracted_atoms_inner(
     store: &Store,
     request: &ExtractionBatchRequest,
@@ -368,8 +381,17 @@ fn stage_extracted_atoms_inner(
         .chunks
         .iter()
         .any(|c| kp_model::has_tagged_turns(&c.body));
+    let distinct_target_authors: BTreeSet<&ActorId> = request
+        .chunks
+        .iter()
+        .filter(|c| c.role == kp_model::SliceRole::Target)
+        .map(|c| &c.author)
+        .collect();
     if let Some(origin) = &options.source_origin {
-        if !has_any_tagged && origin.speaker != request.speaker {
+        if !has_any_tagged
+            && distinct_target_authors.len() <= 1
+            && origin.speaker != request.speaker
+        {
             return Err(KpError::invalid(
                 "source_origin",
                 "SourceOriginMeta.speaker must match ExtractionBatchRequest.speaker on untagged chunks",
@@ -386,21 +408,23 @@ fn stage_extracted_atoms_inner(
 
     const SECURITY_ABORT_FIELDS: &[&str] = &["write_op", "assumed_premise_ids", "speaker"];
 
-    // Pre-validate EVERY atom at the narrow model boundary & attribute its turn speaker before mutating `store`:
-    // security/prompt-injection boundary violations abort the entire batch, whereas localization/date/mention errors
-    // (`verbatim_quote`, `chunk_id`, `date_iso`, `date_range`, `mentions`, etc.) drop only that atom into `rejected_atoms`.
     let mut validated_atoms = Vec::with_capacity(atoms.len());
     for atom in atoms {
-        let checked =
-            request
-                .validate_model_atom_attributed(atom)
-                .and_then(|(verified, atom_speaker)| {
-                    let resolved_window = request.resolve_atom_window(atom)?;
-                    Ok((verified, atom_speaker, resolved_window))
-                });
+        let checked = request.validate_model_atom_with_evidence(atom).and_then(
+            |(verified, verified_evidence, atom_speaker)| {
+                let resolved_window = request.resolve_atom_window(atom)?;
+                Ok((verified, verified_evidence, atom_speaker, resolved_window))
+            },
+        );
         match checked {
-            Ok((verified, atom_speaker, resolved_window)) => {
-                validated_atoms.push((atom, verified, atom_speaker, resolved_window));
+            Ok((verified, verified_evidence, atom_speaker, resolved_window)) => {
+                validated_atoms.push((
+                    atom,
+                    verified,
+                    verified_evidence,
+                    atom_speaker,
+                    resolved_window,
+                ));
             }
             Err(KpError::InvalidInput { field, reason })
                 if !SECURITY_ABORT_FIELDS.contains(&field) =>
@@ -418,9 +442,14 @@ fn stage_extracted_atoms_inner(
 
     let mut batch_seen_claims: Vec<(ActorId, FactKind, String)> = Vec::new();
 
-    for (atom, verified_quote, atom_speaker, resolved_window) in validated_atoms {
-        if atom.write_op == ModelWriteOp::None || is_trivial_turn_text(&verified_quote.exact_quote)
-        {
+    for (atom, verified_quote, verified_evidence_opt, atom_speaker, resolved_window) in
+        validated_atoms
+    {
+        let is_noop_quote = match &verified_evidence_opt {
+            Some(ev) => is_trivial_turn_text(&ev.matched.exact_quote),
+            None => is_trivial_turn_text(&verified_quote.exact_quote),
+        };
+        if atom.write_op == ModelWriteOp::None || is_noop_quote {
             outcome.skipped_noop += 1;
             continue;
         }
@@ -830,19 +859,37 @@ fn stage_extracted_atoms_inner(
             }
         }
 
+        if let Some(ref ev) = verified_evidence_opt {
+            let ev_slice = request
+                .chunks
+                .get(ev.slice_index)
+                .ok_or_else(|| KpError::invalid("evidence", "missing evidence slice"))?;
+            let ev_byte_identical = is_slice_byte_identical(store, ev_slice)?;
+            let ev_body_hash = ContentHash::digest(&ev_slice.body);
+            let ev_anchor = AnchorSpec::quote_in_chunk(
+                ev_slice.source_id.clone(),
+                ev_slice.chunk_id.clone(),
+                &ev_slice.base_anchor,
+                &ev.matched,
+                ev_body_hash,
+                ev_byte_identical,
+            );
+            if let Value::Object(ref mut map) = object_json {
+                map.insert("evidence_anchor".into(), serde_json::to_value(&ev_anchor)?);
+            }
+        }
+
         let fact_id = alloc_opaque_fact_id()?;
         let logical_key = fact_id.as_str().parse()?;
-        let source_anchor = AnchorSpec {
-            source_id: Some(request.source_id.clone()),
-            chunk_id: Some(atom.quote.chunk_id.clone()),
-            verbatim_quote: Some(verified_quote.exact_quote),
-            char_start: Some(verified_quote.span.char_start),
-            char_end: Some(verified_quote.span.char_end),
-            start_byte: Some(verified_quote.byte_start),
-            end_byte: Some(verified_quote.byte_end),
-            body_hash: Some(chunk_sha256),
-            ..AnchorSpec::default()
-        };
+        let byte_identical = is_slice_byte_identical(store, chunk)?;
+        let source_anchor = AnchorSpec::quote_in_chunk(
+            chunk.source_id.clone(),
+            atom.quote.chunk_id.clone(),
+            &chunk.base_anchor,
+            &verified_quote,
+            chunk_sha256,
+            byte_identical,
+        );
 
         let (ingested_by, source_scope_id) = match &options.source_origin {
             Some(meta) => (

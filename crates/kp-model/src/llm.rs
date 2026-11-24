@@ -7,10 +7,128 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    verify_verbatim_quote, ActorId, CalendarTable, CharSpan, CommunityConcept, ConceptId,
-    ConceptKind, ConceptPolarity, ContentHash, FactId, FactKind, KpError, QuoteLocationHint,
-    Result, SourceId, ValidityWindow, VerifiedQuoteMatch,
+    verify_verbatim_quote, ActorId, AnchorSpec, CalendarTable, CharSpan, CommunityConcept,
+    ConceptId, ConceptKind, ConceptPolarity, ContentHash, FactId, FactKind, KpError,
+    QuoteLocationHint, Result, SourceId, ValidityWindow, VerifiedQuoteMatch,
 };
+
+pub fn normalize_for_dedup(text: &str) -> String {
+    let mut tokens: Vec<char> = Vec::with_capacity(text.len());
+    let mut prev_space = true;
+    for raw in text.chars() {
+        let folded = if ('\u{FF01}'..='\u{FF5E}').contains(&raw) {
+            char::from_u32((raw as u32) - 0xFEE0).unwrap_or(raw)
+        } else {
+            raw
+        };
+        let is_sep = folded.is_whitespace()
+            || matches!(
+                folded,
+                '\u{3000}'
+                    | '\u{201C}'
+                    | '\u{201D}'
+                    | '\u{2018}'
+                    | '\u{2019}'
+                    | '「'
+                    | '」'
+                    | '『'
+                    | '』'
+                    | '。'
+                    | '、'
+                    | '.'
+                    | '!'
+                    | '?'
+                    | ','
+                    | ';'
+                    | ':'
+                    | '"'
+                    | '\''
+                    | '('
+                    | ')'
+                    | '['
+                    | ']'
+            );
+        if is_sep {
+            if !prev_space {
+                tokens.push(' ');
+                prev_space = true;
+            }
+        } else {
+            let ch = folded.to_ascii_lowercase();
+            if prev_space && tokens.last() == Some(&' ') {
+                let prev_non_space = tokens.iter().rev().nth(1).copied();
+                if !ch.is_ascii() || prev_non_space.is_some_and(|p| !p.is_ascii()) {
+                    tokens.pop();
+                }
+            }
+            tokens.push(ch);
+            prev_space = false;
+        }
+    }
+    if tokens.last() == Some(&' ') {
+        tokens.pop();
+    }
+    tokens.into_iter().collect()
+}
+
+pub fn is_trivial_turn_text(text: &str) -> bool {
+    fn is_single_ack(norm: &str) -> bool {
+        matches!(
+            norm,
+            "好的"
+                | "好"
+                | "收到"
+                | "明白"
+                | "知道了"
+                | "已阅"
+                | "嗯"
+                | "嗯嗯"
+                | "恩"
+                | "哦"
+                | "行"
+                | "可以"
+                | "没问题"
+                | "同意"
+                | "赞成"
+                | "谢谢"
+                | "感谢"
+                | "ok"
+                | "okay"
+                | "k"
+                | "ack"
+                | "lgtm"
+                | "+1"
+                | "yes"
+                | "yep"
+                | "agreed"
+                | "ship it"
+                | "thanks"
+                | "thx"
+                | "got it"
+                | "roger"
+        )
+    }
+
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed == "<skip_summary/>" {
+        return true;
+    }
+    let norm = normalize_for_dedup(trimmed);
+    if norm.is_empty() {
+        return true;
+    }
+    if is_single_ack(norm.as_str()) {
+        return true;
+    }
+    let clauses: Vec<String> = trimmed
+        .split([
+            '\n', '\r', ',', '，', '.', '。', '!', '！', '?', '？', ';', '；', '、', '~', '～',
+        ])
+        .map(normalize_for_dedup)
+        .filter(|s| !s.is_empty())
+        .collect();
+    !clauses.is_empty() && clauses.iter().all(|c| is_single_ack(c.as_str()))
+}
 
 /// Line prefix marking an assistant turn inside an extraction chunk (context only, never a claim).
 pub const ASSISTANT_TURN_TAG: &str = "[assistant]";
@@ -430,14 +548,38 @@ pub struct ModelExtractedAtom {
     pub assumed_premise_ids: Vec<FactId>,
     pub quote: ModelQuoteAnchor,
     #[serde(default)]
+    pub evidence: Option<ModelQuoteAnchor>,
+    #[serde(default)]
     pub write_op: ModelWriteOp,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SliceRole {
+    #[default]
+    Target,
+    Context,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ExtractionChunkSlice {
     pub chunk_id: String,
+    pub source_id: SourceId,
+    pub author: ActorId,
+    #[serde(default)]
+    pub base_anchor: AnchorSpec,
+    #[serde(default)]
+    pub role: SliceRole,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to_chunk_id: Option<String>,
     pub heading: String,
     pub body: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedEvidenceAnchor {
+    pub slice_index: usize,
+    pub matched: VerifiedQuoteMatch,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -515,23 +657,29 @@ impl ExtractionBatchRequest {
         )
     }
 
-    /// Human speakers appearing in tagged turns across all chunks (plus the primary speaker).
+    /// Human speakers appearing across target chunks (plus the primary speaker).
     pub fn batch_speakers(&self) -> std::collections::BTreeSet<ActorId> {
         let mut speakers = std::collections::BTreeSet::from([self.speaker.clone()]);
         for chunk in &self.chunks {
-            for turn in parse_tagged_turns(&chunk.body) {
-                if let (Some(s), false) = (turn.speaker, turn.is_assistant) {
-                    speakers.insert(s);
+            if chunk.role != SliceRole::Target {
+                continue;
+            }
+            if has_tagged_turns(&chunk.body) {
+                for turn in parse_tagged_turns(&chunk.body) {
+                    if let (Some(s), false) = (turn.speaker, turn.is_assistant) {
+                        speakers.insert(s);
+                    }
                 }
+            } else {
+                speakers.insert(chunk.author.clone());
             }
         }
         speakers
     }
 
-    /// Deterministically attributes a verified quote to its speaker. Untagged chunks belong to the
-    /// primary `speaker`; in tagged chunks the quote must lie entirely inside ONE human
-    /// `[speaker:<actor>]` turn — assistant turns, tags, and untagged context are rejected — and any
-    /// model-claimed `atom.speaker` must equal that turn's speaker.
+    /// Deterministically attributes a verified quote to its speaker. Authority quotes must reference
+    /// a `SliceRole::Target` slice; untagged target slices belong to `slice.author`, while tagged
+    /// slices require a single human `[speaker:<actor>]` turn.
     pub fn resolve_atom_speaker(
         &self,
         atom: &ModelExtractedAtom,
@@ -542,14 +690,20 @@ impl ExtractionBatchRequest {
             .iter()
             .find(|c| c.chunk_id == atom.quote.chunk_id)
             .ok_or_else(|| KpError::invalid("chunk_id", "quote references an unknown chunk"))?;
+        if chunk.role != SliceRole::Target {
+            return Err(KpError::invalid(
+                "chunk_id",
+                "authority quote must reference a target slice, not readonly context",
+            ));
+        }
         if !has_tagged_turns(&chunk.body) {
-            if atom.speaker.as_ref().is_some_and(|s| *s != self.speaker) {
+            if atom.speaker.as_ref().is_some_and(|s| *s != chunk.author) {
                 return Err(KpError::invalid(
                     "speaker",
                     "claimed speaker does not own this untagged chunk",
                 ));
             }
-            return Ok(self.speaker.clone());
+            return Ok(chunk.author.clone());
         }
         let turn = parse_tagged_turns(&chunk.body)
             .into_iter()
@@ -677,10 +831,137 @@ impl ExtractionBatchRequest {
         &self,
         atom: &ModelExtractedAtom,
     ) -> Result<(VerifiedQuoteMatch, ActorId)> {
+        self.validate_model_atom_with_evidence(atom)
+            .map(|(verified, _, speaker)| (verified, speaker))
+    }
+
+    /// Validates narrow-boundary structure, authority quote speaker attribution, `SupersedeOwn`
+    /// ownership, and optional `evidence` quote + turn-adjacency rules.
+    pub fn validate_model_atom_with_evidence(
+        &self,
+        atom: &ModelExtractedAtom,
+    ) -> Result<(VerifiedQuoteMatch, Option<VerifiedEvidenceAnchor>, ActorId)> {
         let verified = self.validate_model_atom_structure(atom)?;
         let speaker = self.resolve_atom_speaker(atom, &verified)?;
         self.check_supersede_own(atom, &speaker)?;
-        Ok((verified, speaker))
+        let verified_evidence = self.validate_evidence_and_adjacency(atom, &verified, &speaker)?;
+        Ok((verified, verified_evidence, speaker))
+    }
+
+    fn validate_evidence_and_adjacency(
+        &self,
+        atom: &ModelExtractedAtom,
+        verified_auth: &VerifiedQuoteMatch,
+        authority_speaker: &ActorId,
+    ) -> Result<Option<VerifiedEvidenceAnchor>> {
+        let Some(ev_quote) = &atom.evidence else {
+            return Ok(None);
+        };
+        if !matches!(atom.kind, FactKind::Constraint | FactKind::Decision) {
+            return Err(KpError::invalid(
+                "evidence",
+                "evidence quote is only permitted on constraint or decision atoms",
+            ));
+        }
+        let Some((ev_slice_idx, ev_slice)) = self
+            .chunks
+            .iter()
+            .enumerate()
+            .find(|(_, c)| c.chunk_id == ev_quote.chunk_id)
+        else {
+            return Err(KpError::invalid(
+                "evidence",
+                "evidence references a chunk_id absent from ExtractionBatchRequest",
+            ));
+        };
+        let verified_ev =
+            verify_verbatim_quote(&ev_slice.body, &ev_quote.verbatim_quote, ev_quote.hint())
+                .map_err(|_| {
+                    KpError::invalid(
+                        "evidence",
+                        "evidence quote is not a verbatim substring of its slice",
+                    )
+                })?;
+
+        let auth_slice_idx = self
+            .chunks
+            .iter()
+            .position(|c| c.chunk_id == atom.quote.chunk_id)
+            .ok_or_else(|| KpError::invalid("chunk_id", "missing authority slice"))?;
+
+        let window_turns = flatten_window_turns(&self.chunks);
+        let ev_turn_idx = window_turns
+            .iter()
+            .position(|t| {
+                t.slice_index == ev_slice_idx
+                    && t.char_start <= verified_ev.span.char_start
+                    && verified_ev.span.char_end <= t.char_end
+            })
+            .ok_or_else(|| {
+                KpError::invalid(
+                    "evidence",
+                    "evidence quote must lie inside a single turn's text",
+                )
+            })?;
+        let auth_turn_idx = window_turns
+            .iter()
+            .position(|t| {
+                t.slice_index == auth_slice_idx
+                    && t.char_start <= verified_auth.span.char_start
+                    && verified_auth.span.char_end <= t.char_end
+            })
+            .ok_or_else(|| {
+                KpError::invalid(
+                    "verbatim_quote",
+                    "authority quote must lie inside a single turn's text",
+                )
+            })?;
+
+        if ev_turn_idx >= auth_turn_idx {
+            return Err(KpError::invalid(
+                "evidence",
+                "evidence must precede authority quote in conversation order",
+            ));
+        }
+
+        let ev_turn = &window_turns[ev_turn_idx];
+        let auth_turn = &window_turns[auth_turn_idx];
+        if is_trivial_turn_text(&verified_auth.exact_quote) {
+            if ev_turn.speaker.as_ref() == Some(authority_speaker) {
+                return Err(KpError::invalid(
+                    "evidence",
+                    "bare-ack ratification requires a distinct proposer speaker",
+                ));
+            }
+            if is_trivial_turn_text(&ev_turn.text) {
+                return Err(KpError::invalid(
+                    "evidence",
+                    "evidence turn cannot itself be a trivial acknowledgement",
+                ));
+            }
+            let explicit_reply_matches = auth_turn
+                .reply_to_chunk_id
+                .is_some_and(|rt| rt == ev_turn.chunk_id);
+            let only_acks_between = window_turns[ev_turn_idx + 1..auth_turn_idx]
+                .iter()
+                .all(|mid| is_trivial_turn_text(&mid.text));
+            if !explicit_reply_matches && !only_acks_between {
+                return Err(KpError::invalid(
+                    "evidence",
+                    "bare-ack authority requires explicit reply_to or only trivial acks after evidence",
+                ));
+            }
+        } else if auth_turn_idx - ev_turn_idx > 6 {
+            return Err(KpError::invalid(
+                "evidence",
+                "substantive ratification evidence exceeds maximum distance of 6 turns",
+            ));
+        }
+
+        Ok(Some(VerifiedEvidenceAnchor {
+            slice_index: ev_slice_idx,
+            matched: verified_ev,
+        }))
     }
 
     /// Verifies a `SupersedeOwn` target belongs to the attributed `speaker`'s own facts.
@@ -798,8 +1079,61 @@ impl ExtractionBatchRequest {
                 "quote references a chunk_id absent from ExtractionBatchRequest",
             ));
         };
+        if chunk.role != SliceRole::Target {
+            return Err(KpError::invalid(
+                "chunk_id",
+                "authority quote must reference a target slice, not readonly context",
+            ));
+        }
         verify_verbatim_quote(&chunk.body, &atom.quote.verbatim_quote, atom.quote.hint())
     }
+}
+
+struct WindowTurn<'a> {
+    slice_index: usize,
+    chunk_id: &'a str,
+    speaker: Option<ActorId>,
+    char_start: u32,
+    char_end: u32,
+    text: String,
+    reply_to_chunk_id: Option<&'a str>,
+}
+
+fn flatten_window_turns(chunks: &[ExtractionChunkSlice]) -> Vec<WindowTurn<'_>> {
+    let mut out = Vec::new();
+    for (slice_index, slice) in chunks.iter().enumerate() {
+        if !has_tagged_turns(&slice.body) {
+            let char_end = u32::try_from(slice.body.chars().count()).unwrap_or(u32::MAX);
+            out.push(WindowTurn {
+                slice_index,
+                chunk_id: &slice.chunk_id,
+                speaker: Some(slice.author.clone()),
+                char_start: 0,
+                char_end,
+                text: slice.body.clone(),
+                reply_to_chunk_id: slice.reply_to_chunk_id.as_deref(),
+            });
+        } else {
+            let chars: Vec<char> = slice.body.chars().collect();
+            for turn in parse_tagged_turns(&slice.body) {
+                if let Some(span) = turn.text_span {
+                    let start = (span.char_start as usize).min(chars.len());
+                    let end = (span.char_end as usize).min(chars.len());
+                    let text: String = chars[start..end].iter().collect();
+                    out.push(WindowTurn {
+                        slice_index,
+                        chunk_id: &slice.chunk_id,
+                        speaker: turn.speaker,
+                        char_start: span.char_start,
+                        char_end: span.char_end,
+                        text,
+                        reply_to_chunk_id: None,
+                    });
+                }
+            }
+        }
+    }
+    out
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -967,6 +1301,9 @@ impl LlmClient for DeterministicMockLlm {
                 .map_err(|_| KpError::invalid("mock_llm", "poisoned lock"))?;
             let mut combined = Vec::new();
             for chunk in &request.chunks {
+                if chunk.role != SliceRole::Target {
+                    continue;
+                }
                 if let Some(outcome) = guard.get(&ContentHash::digest(&chunk.body)) {
                     match outcome {
                         ExtractionBatchOutcome::Completed { atoms } => {

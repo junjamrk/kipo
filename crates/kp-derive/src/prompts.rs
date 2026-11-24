@@ -17,11 +17,12 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub use kp_model::{is_trivial_turn_text, normalize_for_dedup};
 use kp_model::{
     ActorId, ConceptKind, ConceptPolarity, ContentHash, EntailmentQuery, EntailmentVerdict,
     ExtractionBatchRequest, FactId, FactKind, KpError, ModelAmbiguousScope, ModelConceptRef,
     ModelDateRange, ModelExtractedAtom, ModelQuoteAnchor, ModelScopeRef, ModelWriteOp,
-    SecretRedactor,
+    SecretRedactor, SliceRole,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -45,121 +46,6 @@ pub struct ModelExtractionEnvelope {
     pub skip_summary: bool,
     #[serde(default)]
     pub atoms: Vec<ModelExtractedAtom>,
-}
-
-/// Folds fullwidth ASCII and CJK/typographic punctuation, lowercases ASCII, and collapses whitespace
-/// (dropping optional spaces adjacent to non-ASCII/CJK characters as in Graphiti `dedup_helpers.py`).
-pub fn normalize_for_dedup(text: &str) -> String {
-    let mut tokens: Vec<char> = Vec::with_capacity(text.len());
-    let mut prev_space = true;
-    for raw in text.chars() {
-        let folded = if ('\u{FF01}'..='\u{FF5E}').contains(&raw) {
-            char::from_u32((raw as u32) - 0xFEE0).unwrap_or(raw)
-        } else {
-            raw
-        };
-        let is_sep = folded.is_whitespace()
-            || matches!(
-                folded,
-                '\u{3000}'
-                    | '\u{201C}'
-                    | '\u{201D}'
-                    | '\u{2018}'
-                    | '\u{2019}'
-                    | '「'
-                    | '」'
-                    | '『'
-                    | '』'
-                    | '。'
-                    | '、'
-                    | '.'
-                    | '!'
-                    | '?'
-                    | ','
-                    | ';'
-                    | ':'
-                    | '"'
-                    | '\''
-                    | '('
-                    | ')'
-                    | '['
-                    | ']'
-            );
-        if is_sep {
-            if !prev_space {
-                tokens.push(' ');
-                prev_space = true;
-            }
-        } else {
-            let ch = folded.to_ascii_lowercase();
-            // Drop space if either neighbor is non-ASCII (e.g. CJK `"回滚请求 PR"` == `"回滚请求PR"`).
-            if prev_space && tokens.last() == Some(&' ') {
-                let prev_non_space = tokens.iter().rev().nth(1).copied();
-                if !ch.is_ascii() || prev_non_space.is_some_and(|p| !p.is_ascii()) {
-                    tokens.pop();
-                }
-            }
-            tokens.push(ch);
-            prev_space = false;
-        }
-    }
-    if tokens.last() == Some(&' ') {
-        tokens.pop();
-    }
-    tokens.into_iter().collect()
-}
-
-/// Returns true when a turn/chunk consists solely of empty text, `<skip_summary/>`, or low-signal acks
-/// (including compound acks like `"好的，收到！"` or `"收到，谢谢"`).
-pub fn is_trivial_turn_text(text: &str) -> bool {
-    fn is_single_ack(norm: &str) -> bool {
-        matches!(
-            norm,
-            "好的"
-                | "好"
-                | "收到"
-                | "明白"
-                | "知道了"
-                | "嗯"
-                | "嗯嗯"
-                | "恩"
-                | "哦"
-                | "行"
-                | "可以"
-                | "没问题"
-                | "谢谢"
-                | "感谢"
-                | "ok"
-                | "okay"
-                | "k"
-                | "ack"
-                | "lgtm"
-                | "thanks"
-                | "thx"
-                | "got it"
-                | "roger"
-        )
-    }
-
-    let trimmed = text.trim();
-    if trimmed.is_empty() || trimmed == SKIP_SUMMARY_SENTINEL {
-        return true;
-    }
-    let norm = normalize_for_dedup(trimmed);
-    if norm.is_empty() {
-        return true;
-    }
-    if is_single_ack(norm.as_str()) {
-        return true;
-    }
-    let clauses: Vec<String> = trimmed
-        .split([
-            '\n', '\r', ',', '，', '.', '。', '!', '！', '?', '？', ';', '；', '、', '~', '～',
-        ])
-        .map(normalize_for_dedup)
-        .filter(|s| !s.is_empty())
-        .collect();
-    !clauses.is_empty() && clauses.iter().all(|c| is_single_ack(c.as_str()))
 }
 
 /// Returns true when an entire chunk contains zero extractable human turns (either untagged
@@ -490,7 +376,7 @@ pub fn extraction_batch_json_schema() -> Value {
                     "verbatim_quote",
                     json!({
                         "type": "string",
-                        "description": "Exact contiguous substring from inside that single turn's text, excluding [turn:N], [speaker:...], and [assistant] prefixes; never extract bare acknowledgements (\"收到\", \"好的\", etc.)"
+                        "description": "Exact contiguous substring from inside a target <chunk> human turn's text, excluding [turn:N], [speaker:...], and [assistant] prefixes"
                     }),
                 ),
                 (
@@ -502,6 +388,30 @@ pub fn extraction_batch_json_schema() -> Value {
                 ),
                 ("approx_char_offset", json!({ "type": ["integer", "null"] })),
             ]),
+        ),
+        (
+            "evidence",
+            strict_nullable_described(
+                strict_object(vec![
+                    ("chunk_id", json!({ "type": "string" })),
+                    (
+                        "verbatim_quote",
+                        json!({
+                            "type": "string",
+                            "description": "Exact contiguous substring from an earlier turn or <context_chunk> holding the ratified proposal content"
+                        }),
+                    ),
+                    (
+                        "turn_ordinal",
+                        json!({
+                            "type": ["integer", "null"],
+                            "description": "0-based turn index N matching [turn:N] in the evidence chunk"
+                        }),
+                    ),
+                    ("approx_char_offset", json!({ "type": ["integer", "null"] })),
+                ]),
+                "Optional content quote ONLY on kind=\"decision\" or kind=\"constraint\" when `quote` ratifies an earlier proposal; null for self-contained statements.",
+            ),
         ),
         (
             "write_op",
@@ -600,6 +510,8 @@ struct WireAtom {
     #[serde(default)]
     assumed_premise_ids: Vec<String>,
     quote: WireQuote,
+    #[serde(default)]
+    evidence: Option<WireQuote>,
     write_op: WireWriteOp,
 }
 
@@ -747,6 +659,12 @@ fn wire_atom(wire: WireAtom) -> kp_model::Result<ModelExtractedAtom> {
             turn_ordinal: wire.quote.turn_ordinal,
             approx_char_offset: wire.quote.approx_char_offset,
         },
+        evidence: wire.evidence.map(|ev| ModelQuoteAnchor {
+            chunk_id: ev.chunk_id,
+            verbatim_quote: ev.verbatim_quote,
+            turn_ordinal: ev.turn_ordinal,
+            approx_char_offset: ev.approx_char_offset,
+        }),
         write_op,
     })
 }
@@ -844,30 +762,87 @@ pub fn build_extraction_prompt(
     let own_facts_json =
         serde_json::to_string(&Value::Object(own_facts_by_speaker)).unwrap_or_else(|_| "{}".into());
 
+    let mut context_section = String::new();
     let mut chunks_section = String::new();
     for chunk in &request.chunks {
-        let safe_heading = redactor.redact(&chunk.heading);
+        let safe_heading = redactor.redact(chunk.heading.trim());
         let safe_body = render_chunk_with_turn_ordinals(&chunk.body, redactor);
-        chunks_section.push_str(&format!(
-            "<chunk id=\"{}\" heading=\"{}\">\n{}\n</chunk>\n",
-            chunk.chunk_id, safe_heading, safe_body
-        ));
+        let reply_attr = chunk
+            .reply_to_chunk_id
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|rt| format!(" reply_to=\"{}\"", redactor.redact(rt)))
+            .unwrap_or_default();
+        let heading_attr = if safe_heading.is_empty() {
+            String::new()
+        } else {
+            format!(" heading=\"{safe_heading}\"")
+        };
+        let section_banner = if safe_heading.is_empty() {
+            String::new()
+        } else {
+            format!("[section_metadata (non-quotable): {safe_heading}]\n")
+        };
+        match chunk.role {
+            SliceRole::Context => {
+                context_section.push_str(&format!(
+                    "<context_chunk id=\"{}\" author=\"{}\"{}{}>\n{}{}\n</context_chunk>\n",
+                    chunk.chunk_id,
+                    chunk.author,
+                    reply_attr,
+                    heading_attr,
+                    section_banner,
+                    safe_body
+                ));
+            }
+            SliceRole::Target => {
+                chunks_section.push_str(&format!(
+                    "<chunk id=\"{}\" author=\"{}\"{}{}>\n{}{}\n</chunk>\n",
+                    chunk.chunk_id,
+                    chunk.author,
+                    reply_attr,
+                    heading_attr,
+                    section_banner,
+                    safe_body
+                ));
+            }
+        }
     }
+    let context_wrapper = if context_section.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "## 5a. Prior Context (`<context_readonly>` — NEVER use as `quote` authority!)\n\
+             <context_readonly>\n\
+             {context_section}\
+             </context_readonly>\n\n"
+        )
+    };
 
     format!(
         "You are `kp`'s out-of-session memory extraction engine.\n\
-Extract ONLY durable facts, events, constraints, decisions, memberships, and proven pitfalls stated by HUMAN speakers.\n\
+Extract ONLY durable facts, events, constraints, decisions, memberships, and proven pitfalls stated or ratified by HUMAN speakers.\n\
 \n\
-## 0. Speakers & Turns\n\
-- Each line/turn inside `<chunk>` is prefixed with its 0-based index `[turn:N]` (`N = 0, 1, 2, ...`).\n\
-- Lines tagged `[speaker:<actor_id>]` are human turns; lines tagged `[assistant]` are AI assistant output and are CONTEXT ONLY.\n\
-- NEVER extract a claim whose only source is an `[assistant]` turn. If a human explicitly agrees to an assistant proposal in their own turn, quote the HUMAN's agreeing words.\n\
-- EVERY extracted item MUST set `quote.turn_ordinal` to the exact integer `N` from that turn's `[turn:N]` prefix.\n\
-- Set `speaker` to the `<actor_id>` of the tagged turn `[turn:N]` that contains `verbatim_quote`; the quote must lie strictly inside that single turn's text and MUST NOT include `[turn:N]`, `[speaker:<actor_id>]`, or `[assistant]` tags. For untagged chunks, set `speaker` to null (they belong to `{speaker}`).\n\
-- NEVER extract bare acknowledgements or filler replies (`\"收到\"`, `\"好的\"`, `\"好的，收到！\"`, `\"明白\"`, `\"知道了\"`, `\"嗯\"`, `\"恩\"`, `\"行\"`, `\"可以\"`, `\"没问题\"`, `\"谢谢\"`, `\"ok\"`, `\"lgtm\"`, `\"thanks\"`), even when mixed into multi-turn chats.\n\
+## 0. Speakers, Turns, Dual-Anchor Ratification & 5-Way Speech-Act Gate\n\
+- Each line/turn inside `<chunk>` or `<context_chunk>` is prefixed with its 0-based index `[turn:N]` (`N = 0, 1, 2, ...`).\n\
+- `[section_metadata (non-quotable): ...]` headers provide section/table context ONLY and are NOT part of any turn's quotable text.\n\
+- `<context_readonly>` (`<context_chunk>`) contains already-processed prior turns for coreference, pronoun/entity resolution, and `evidence` quotes ONLY — `quote` (authority) MUST ALWAYS reference a target `<chunk>`, NEVER a `<context_chunk>`!\n\
+- Lines tagged `[speaker:<actor_id>]` are human turns; lines tagged `[assistant]` are AI assistant output and can NEVER carry `quote` authority.\n\
+- Set `speaker` to the `<actor_id>` of the quoted turn (or the target `<chunk>`'s `author`, or null on untagged chunks owned by primary speaker `{speaker}`). `quote.turn_ordinal` MUST equal `N` from `[turn:N]`, and `verbatim_quote` MUST exclude `[turn:N]`, `[speaker:...]`, `[assistant]`, and `[section_metadata ...]`.\n\
+- Dual-anchor ratification (`quote` + `evidence`, ONLY allowed on `kind = \"decision\"` or `kind = \"constraint\"`):\n\
+  * Self-contained human statements set `evidence = null` and `quote` to the human's verbatim words.\n\
+  * When an earlier turn (`[assistant]` or another speaker `A`, in `<context_chunk>` or an earlier `<chunk>` turn) proposes a concrete rule/decision and human speaker `B` (`B != A`) ratifies it in a target `<chunk>` (even with a bare agreement like `\"lgtm\"`, `\"同意\"`, `\"可以\"`, `\"yes\"`, or via `reply_to`), set `evidence` to the verbatim proposal in `A`'s / `[assistant]`'s turn and set `quote` to `B`'s ratifying words (`speaker = B`).\n\
+  * NEVER pair a bare acknowledgement (`\"收到\"`, `\"好的\"`, `\"ok\"`, `\"lgtm\"`, `\"+1\"`) with a prior proposal if a non-ack question or counter-comment intervened between them without an explicit `reply_to`.\n\
+  * Standalone bare acknowledgements that do NOT ratify a concrete proposal MUST NOT be extracted.\n\
+- 5-Way Speech-Act Gate:\n\
+  1. Open questions (`\"Should we switch to Postgres?\"`, `\"what about tests?\"`) without ratification => DROP.\n\
+  2. Jokes, sarcasm, hypotheticals, and banter => DROP.\n\
+  3. Unratified brainstorms or tentative `[assistant]` / human suggestions (`\"Maybe we could...\"`) => DROP.\n\
+  4. Unmerged PR nitpicks or one-off code review remarks not ratified as standing team rules => DROP.\n\
+  5. Solo normative opinions with unclear team authority => extract narrowly with `scope = speaker_self` and `ambiguous_scope` (`broader_candidate`); ratified proposals => extract as `decision` or `constraint` with `evidence` + `quote`.\n\
 \n\
 ## 1. Empty / Trivial Turn Sentinel (adapted from claude-mem Apache-2.0)\n\
-If all chunks contain only greetings, acknowledgements (e.g. \"收到\", \"好的\", \"ok\", \"lgtm\", \"thanks\"), or ephemeral chatter with zero durable memory, return `{{\"skip_summary\": true, \"atoms\": []}}`.\n\
+If target `<chunk>` blocks contain only greetings, standalone acknowledgements with nothing to ratify, open questions, or ephemeral chatter with zero durable memory, return `{{\"skip_summary\": true, \"atoms\": []}}`.\n\
 \n\
 ## 2. Temporal Resolution Rules (adapted from Graphiti `extract_edges.py` Apache-2.0)\n\
 Statement date: `{ref_y:04}-{ref_m:02}-{ref_d:02}` (weekday_iso={ref_wd}, utc_offset_minutes={tz}).\n\
@@ -898,11 +873,12 @@ Active decisions (`active_decisions`): {decisions_json}\n\
   * Subjectless / unclear who it governs (\"no overtime on weekends\") => `scope = {{\"scope\": \"speaker_self\", \"mentions\": null, \"group_concept\": null}}` AND `ambiguous_scope = {{\"broader_candidate\": {{\"scope\": \"relation_group\", ...}}, \"question\": \"<ask whether it applies only to the speaker or to the whole group>\"}}`.\n\
 - Membership (`kind = \"membership\"`, e.g. \"Erin is in our book club\"): populate BOTH `group_concept` (`kind = \"group\"`) and `member_mention` (\"Erin\").\n\
 - `assumed_premise_ids`: include ONLY IDs from `active_decisions` that this claim explicitly presupposes (else `[]`).\n\
-- `quote`: EVERY extracted item MUST set `turn_ordinal` to that turn's exact 0-based integer `N` from `[turn:N]`, and `verbatim_quote` MUST be an exact contiguous substring of that turn's text (excluding `[turn:N]` and speaker tags; NEVER quote bare acknowledgements such as `\"收到\"` or `\"好的\"`).\n\
+- `quote`: EVERY extracted item MUST set `turn_ordinal` to that turn's exact 0-based integer `N` from `[turn:N]`, and `verbatim_quote` MUST be an exact contiguous substring of that target `<chunk>` turn's text.\n\
+- `evidence`: set to null unless ratifying an earlier proposal on `decision`/`constraint`.\n\
 - `value_json`: the claim's structured value encoded as a JSON STRING (e.g. `\"{{\\\"room\\\":\\\"B2\\\"}}\"`), or `\"null\"`.\n\
 - Output format: EVERY key defined by the output schema MUST be present on every object; use null for unused optional keys.\n\
 \n\
-## 5. Source Chunks\n\
+{context_wrapper}## 5. Target Source Chunks\n\
 {chunks_section}",
         speaker = request.speaker,
         ref_y = request.reference_calendar.reference_date.year,
@@ -1077,6 +1053,7 @@ mod tests {
                 "speaker": "dave",
                 "assumed_premise_ids": ["fact_dec_1"],
                 "quote": {"chunk_id": "c0", "verbatim_quote": "周末不加班", "turn_ordinal": null, "approx_char_offset": 3},
+                "evidence": null,
                 "write_op": {"op": "supersede_own", "target_fact_id": "fact_old"}
             }]
         });
@@ -1213,6 +1190,11 @@ mod tests {
             speaker_own_facts_by_actor: BTreeMap::new(),
             chunks: vec![kp_model::ExtractionChunkSlice {
                 chunk_id: "c0".into(),
+                source_id: SourceId::new("src_test")?,
+                author: "bob".parse()?,
+                base_anchor: Default::default(),
+                role: kp_model::SliceRole::Target,
+                reply_to_chunk_id: None,
                 heading: "chat".into(),
                 body: "我们组周末不加班 token=ghp_supersecret123456".into(),
             }],
@@ -1281,6 +1263,11 @@ mod tests {
             speaker_own_facts_by_actor: BTreeMap::new(),
             chunks: vec![kp_model::ExtractionChunkSlice {
                 chunk_id: "c_dup".into(),
+                source_id: SourceId::new("src_turns")?,
+                author: "alice".parse()?,
+                base_anchor: Default::default(),
+                role: kp_model::SliceRole::Target,
+                reply_to_chunk_id: None,
                 heading: "group".into(),
                 body: body.clone(),
             }],

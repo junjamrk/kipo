@@ -159,6 +159,8 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                         event_op,
                         occurred_at: edit_ms,
                         model_policy: scope.model_policy.clone(),
+                        thread_key: None,
+                        reply_to: None,
                     });
                     checkpoint.known_wiki_nodes.insert(
                         node_token.to_owned(),
@@ -187,6 +189,8 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                         event_op: SourceEventOp::Upsert,
                         occurred_at: edit_ms,
                         model_policy: scope.model_policy.clone(),
+                        thread_key: None,
+                        reply_to: None,
                     });
                     checkpoint.known_wiki_nodes.insert(
                         node_token.to_owned(),
@@ -220,6 +224,8 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                         event_op: SourceEventOp::Withdraw,
                         occurred_at: self.config.now,
                         model_policy: scope.model_policy.clone(),
+                        thread_key: None,
+                        reply_to: None,
                     });
                     state.withdrawn = true;
                 }
@@ -313,6 +319,8 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                     },
                     occurred_at: edit_ms,
                     model_policy: scope.model_policy.clone(),
+                    thread_key: None,
+                    reply_to: None,
                 });
                 checkpoint.known_messages.insert(
                     doc_token.to_owned(),
@@ -339,6 +347,8 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                 event_op: SourceEventOp::Upsert,
                 occurred_at: edit_ms,
                 model_policy: scope.model_policy.clone(),
+                thread_key: None,
+                reply_to: None,
             });
             checkpoint.known_messages.insert(
                 doc_token.to_owned(),
@@ -368,6 +378,7 @@ impl<T: FeishuTransport> FeishuConnector<T> {
     ) -> Result<PollBatch> {
         let mut batch = PollBatch::default();
         let mut proposals = BTreeMap::<String, ExternalIdentityProposal>::new();
+        let mut roster_members = BTreeSet::<String>::new();
         let redactor = SecretRedactor::new().map_err(|e| ConnectError::Transport(e.to_string()))?;
 
         let raw = self
@@ -388,6 +399,41 @@ impl<T: FeishuTransport> FeishuConnector<T> {
             .and_then(Value::as_str)
             .unwrap_or("feishu_minutes_owner");
         record_identity(&mut proposals, owner_id, owner_id);
+        if owner_id != "feishu_minutes_owner" && !owner_id.trim().is_empty() {
+            roster_members.insert(owner_id.to_owned());
+        }
+        for arr in [
+            container.get("participants").and_then(Value::as_array),
+            container.get("speakers").and_then(Value::as_array),
+            first_note
+                .and_then(|n| n.get("participants"))
+                .and_then(Value::as_array),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            for entry in arr {
+                let ext_id = entry
+                    .as_str()
+                    .or_else(|| entry.get("user_id").and_then(Value::as_str))
+                    .or_else(|| entry.get("open_id").and_then(Value::as_str))
+                    .or_else(|| entry.get("id").and_then(Value::as_str));
+                if let Some(uid) = ext_id.map(str::trim).filter(|s| !s.is_empty()) {
+                    let name = entry.get("name").and_then(Value::as_str).unwrap_or(uid);
+                    record_identity(&mut proposals, uid, name);
+                    roster_members.insert(uid.to_owned());
+                }
+            }
+        }
+        batch.scope_rosters.push(SourceScopeRoster {
+            scope_id: scope.source_scope_id.clone(),
+            provider: "feishu".into(),
+            external_container_id: format!("minutes:{minute_token}"),
+            label: scope.label.clone(),
+            external_member_ids: roster_members.into_iter().collect(),
+            all_library_members: false,
+            synced_at: self.config.now,
+        });
 
         let linked_doc_token = first_note
             .and_then(|n| {
@@ -424,6 +470,8 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                 event_op: SourceEventOp::Upsert,
                 occurred_at: self.config.now,
                 model_policy: scope.model_policy.clone(),
+                thread_key: None,
+                reply_to: None,
             });
             checkpoint.known_messages.insert(
                 minute_token.to_owned(),
@@ -452,6 +500,7 @@ impl<T: FeishuTransport> FeishuConnector<T> {
     ) -> Result<PollBatch> {
         let mut batch = PollBatch::default();
         let mut proposals = BTreeMap::<String, ExternalIdentityProposal>::new();
+        let mut roster_members = BTreeSet::<String>::new();
         let start = EpochMs((self.config.now.0 - self.config.initial_backfill_sec * 1_000).max(0));
         let end = EpochMs(self.config.now.0 + 30 * 86_400 * 1_000);
         let raw = self
@@ -474,6 +523,26 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                     .and_then(Value::as_str)
                     .unwrap_or("feishu_calendar");
                 record_identity(&mut proposals, organizer, organizer);
+                if organizer != "feishu_calendar" && !organizer.trim().is_empty() {
+                    roster_members.insert(organizer.to_owned());
+                }
+                if let Some(attendees) = item.get("attendees").and_then(Value::as_array) {
+                    for att in attendees {
+                        let ext_id = att
+                            .as_str()
+                            .or_else(|| att.get("user_id").and_then(Value::as_str))
+                            .or_else(|| att.get("open_id").and_then(Value::as_str))
+                            .or_else(|| att.get("id").and_then(Value::as_str));
+                        if let Some(uid) = ext_id.map(str::trim).filter(|s| !s.is_empty()) {
+                            let name = att
+                                .get("display_name")
+                                .and_then(Value::as_str)
+                                .unwrap_or(uid);
+                            record_identity(&mut proposals, uid, name);
+                            roster_members.insert(uid.to_owned());
+                        }
+                    }
+                }
 
                 let summary = item
                     .get("summary")
@@ -497,6 +566,8 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                         event_op: SourceEventOp::Withdraw,
                         occurred_at: start_ms,
                         model_policy: scope.model_policy.clone(),
+                        thread_key: None,
+                        reply_to: None,
                     });
                 } else {
                     batch.events.push(IngestedSourceEvent {
@@ -511,10 +582,21 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                         event_op: SourceEventOp::Upsert,
                         occurred_at: start_ms,
                         model_policy: scope.model_policy.clone(),
+                        thread_key: None,
+                        reply_to: None,
                     });
                 }
             }
         }
+        batch.scope_rosters.push(SourceScopeRoster {
+            scope_id: scope.source_scope_id.clone(),
+            provider: "feishu".into(),
+            external_container_id: format!("calendar:{calendar_id}"),
+            label: scope.label.clone(),
+            external_member_ids: roster_members.into_iter().collect(),
+            all_library_members: false,
+            synced_at: self.config.now,
+        });
         checkpoint.high_water_ms = Some(self.config.now.0);
         batch.identity_proposals = proposals.into_values().collect();
         batch.next_cursor = checkpoint.into_cursor(self.config.now)?;

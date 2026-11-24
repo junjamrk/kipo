@@ -104,6 +104,7 @@ async fn m1_journey_open_concepts_three_premise_collision_privacy_expiry_and_reo
                         approx_char_offset: None,
                     },
                     write_op: ModelWriteOp::Add,
+                    evidence: None,
                 },
                 ModelExtractedAtom {
                     kind: FactKind::Constraint,
@@ -143,6 +144,7 @@ async fn m1_journey_open_concepts_three_premise_collision_privacy_expiry_and_reo
                         approx_char_offset: None,
                     },
                     write_op: ModelWriteOp::Add,
+                    evidence: None,
                 },
             ],
         },
@@ -158,6 +160,11 @@ async fn m1_journey_open_concepts_three_premise_collision_privacy_expiry_and_reo
             chunk_id: "b0".into(),
             heading: "swim-chat".into(),
             body: bob_body.into(),
+            source_id: "src_bob_1".parse()?,
+            author: bob.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -219,6 +226,7 @@ async fn m1_journey_open_concepts_three_premise_collision_privacy_expiry_and_reo
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             }],
         },
     )?;
@@ -233,6 +241,11 @@ async fn m1_journey_open_concepts_three_premise_collision_privacy_expiry_and_reo
             chunk_id: "a0".into(),
             heading: "notice".into(),
             body: alice_body.into(),
+            source_id: "src_alice_1".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -319,6 +332,7 @@ async fn m1_journey_open_concepts_three_premise_collision_privacy_expiry_and_reo
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             }],
         },
     )?;
@@ -333,6 +347,11 @@ async fn m1_journey_open_concepts_three_premise_collision_privacy_expiry_and_reo
             chunk_id: "a1".into(),
             heading: "notice".into(),
             body: reopen_body.into(),
+            source_id: "src_alice_2".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -395,6 +414,11 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
             chunk_id: "c0".into(),
             heading: "travel-policy".into(),
             body: bob_chunk.into(),
+            source_id: "src_bob_scope".parse()?,
+            author: bob.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -425,6 +449,7 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         },
         ModelExtractedAtom {
             kind: FactKind::Constraint,
@@ -457,6 +482,7 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         },
         ModelExtractedAtom {
             kind: FactKind::Constraint,
@@ -499,6 +525,7 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
                 approx_char_offset: Some(37),
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         },
     ];
 
@@ -537,6 +564,11 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
             chunk_id: "ap".into(),
             heading: "itinerary".into(),
             body: "周五有跨城深夜航班".into(),
+            source_id: "src_alice_priv".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -573,6 +605,7 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([alice.clone()])),
@@ -628,6 +661,11 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
             chunk_id: "as".into(),
             heading: "team-trip".into(),
             body: "行政通知：周五有跨城深夜航班".into(),
+            source_id: "src_shared_flight".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -667,6 +705,7 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([alice.clone(), bob.clone()])),
@@ -769,6 +808,11 @@ async fn m1_journey_unrelated_city_blocks_false_positive_and_ambiguous_alignment
             chunk_id: "sh0".into(),
             heading: "上海".into(),
             body: chunk.into(),
+            source_id: "src_sh".parse()?,
+            author: bob.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -806,6 +850,7 @@ async fn m1_journey_unrelated_city_blocks_false_positive_and_ambiguous_alignment
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -835,6 +880,7 @@ async fn m1_journey_unrelated_city_blocks_false_positive_and_ambiguous_alignment
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -866,6 +912,7 @@ async fn m1_journey_unrelated_city_blocks_false_positive_and_ambiguous_alignment
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -893,6 +940,7 @@ async fn m1_journey_unrelated_city_blocks_false_positive_and_ambiguous_alignment
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -941,6 +989,11 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
             chunk_id: "r0".into(),
             heading: "club".into(),
             body: chunk_body.into(),
+            source_id: "src_rej".parse()?,
+            author: bob.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -979,6 +1032,7 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([bob.clone()])),
@@ -1037,6 +1091,7 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         }],
         &opts_with_rej,
     )?;
@@ -1056,6 +1111,11 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
             chunk_id: "r1".into(),
             heading: "later".into(),
             body: "换个地方再提一次：读书会禁止录音。".into(),
+            source_id: "src_rej_2".parse()?,
+            author: bob.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -1087,6 +1147,7 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         }],
         &opts_with_rej,
     )?;
@@ -1104,6 +1165,11 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
             chunk_id: "f0".into(),
             heading: "note".into(),
             body: "周四下午暂停例会。".into(),
+            source_id: "src_forget".parse()?,
+            author: bob.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -1131,6 +1197,7 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([bob.clone()])),
@@ -1169,6 +1236,7 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([bob.clone()])),
@@ -1283,6 +1351,11 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
             chunk_id: "s0".into(),
             heading: "infra".into(),
             body: body.into(),
+            source_id: "src_sec".parse()?,
+            author: bob.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -1312,6 +1385,7 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
             approx_char_offset: None,
         },
         write_op: ModelWriteOp::Add,
+        evidence: None,
     };
     let smuggle_out = apply_extracted_atoms(
         &mut store,
@@ -1369,6 +1443,7 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Observation,
@@ -1391,6 +1466,7 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &opts,
@@ -1481,6 +1557,11 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
             chunk_id: "u0".into(),
             heading: "upd".into(),
             body: update_body.into(),
+            source_id: "src_upd".parse()?,
+            author: bob.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -1516,6 +1597,7 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
         write_op: ModelWriteOp::SupersedeOwn {
             target_fact_id: dec_ch.id,
         },
+        evidence: None,
     };
     assert!(apply_extracted_atoms(
         &mut store,
@@ -1555,6 +1637,7 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
                 write_op: ModelWriteOp::SupersedeOwn {
                     target_fact_id: valid_out.created_fact_ids[0].clone(),
                 },
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Observation,
@@ -1577,6 +1660,7 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::None,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -1669,6 +1753,7 @@ fn named_mention_atom(chunk_id: &str, quote: &str, mention: &str) -> ModelExtrac
             approx_char_offset: None,
         },
         write_op: ModelWriteOp::Add,
+        evidence: None,
     }
 }
 
@@ -1720,6 +1805,11 @@ fn m1_privacy_private_aliases_and_conflicts_neither_resolve_nor_block_other_spea
             chunk_id: "p0".into(),
             heading: "chat".into(),
             body: "组长周五核对账单。搭档周五也核对账单。".into(),
+            source_id: "src_alias_priv".parse()?,
+            author: bob.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -1801,6 +1891,7 @@ fn schedule_event_atom(
             approx_char_offset: None,
         },
         write_op: ModelWriteOp::Add,
+        evidence: None,
     }
 }
 
@@ -1830,6 +1921,11 @@ async fn m1_privacy_outsider_contradiction_never_supersedes_private_event() -> R
             chunk_id: "a0".into(),
             heading: "notes".into(),
             body: "周五自习室停电关闭".into(),
+            source_id: "src_a_priv".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -1859,6 +1955,11 @@ async fn m1_privacy_outsider_contradiction_never_supersedes_private_event() -> R
             chunk_id: "c0".into(),
             heading: "public".into(),
             body: "周五自习室恢复开放".into(),
+            source_id: "src_c_pub".parse()?,
+            author: carol.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -1907,6 +2008,11 @@ async fn m1_privacy_outsider_contradiction_never_supersedes_private_event() -> R
             chunk_id: "a1".into(),
             heading: "notes".into(),
             body: "更新：周五自习室恢复开放".into(),
+            source_id: "src_a_reopen".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -1984,6 +2090,11 @@ async fn m1_multi_speaker_window_batch_blocks_assistant_quotes_and_attributes_pe
             chunk_id: "ack0".into(),
             heading: "chat".into(),
             body: ack_only_chunk,
+            source_id: "src_ack_only".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -2034,6 +2145,11 @@ async fn m1_multi_speaker_window_batch_blocks_assistant_quotes_and_attributes_pe
             chunk_id: "m0".into(),
             heading: "group-chat".into(),
             body: group_body,
+            source_id: "src_multi_1".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -2060,6 +2176,7 @@ async fn m1_multi_speaker_window_batch_blocks_assistant_quotes_and_attributes_pe
             approx_char_offset: None,
         },
         write_op: ModelWriteOp::Add,
+        evidence: None,
     };
     assert!(apply_extracted_atoms(
         &mut store,
@@ -2104,6 +2221,7 @@ async fn m1_multi_speaker_window_batch_blocks_assistant_quotes_and_attributes_pe
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -2130,6 +2248,7 @@ async fn m1_multi_speaker_window_batch_blocks_assistant_quotes_and_attributes_pe
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(AudienceSpec::AllMembers, t0),
@@ -2255,6 +2374,11 @@ async fn m1_two_personal_libraries_sunday_upcoming_friday_habitual_rule_and_quot
             chunk_id: "a_sun".into(),
             heading: "session".into(),
             body: alice_quote.into(),
+            source_id: "src_alice_sun".parse()?,
+            author: alice.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -2294,6 +2418,7 @@ async fn m1_two_personal_libraries_sunday_upcoming_friday_habitual_rule_and_quot
                 approx_char_offset: None,
             },
             write_op: ModelWriteOp::Add,
+            evidence: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([alice.clone()])),
@@ -2326,6 +2451,11 @@ async fn m1_two_personal_libraries_sunday_upcoming_friday_habitual_rule_and_quot
             chunk_id: "b_sun".into(),
             heading: "session".into(),
             body: bob_body,
+            source_id: "src_bob_sun".parse()?,
+            author: bob.clone(),
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         10,
     )?;
@@ -2359,6 +2489,7 @@ async fn m1_two_personal_libraries_sunday_upcoming_friday_habitual_rule_and_quot
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
             ModelExtractedAtom {
                 // Model mislabels habitual group norm as `"observation"` -> coerced to `Constraint`!
@@ -2399,6 +2530,7 @@ async fn m1_two_personal_libraries_sunday_upcoming_friday_habitual_rule_and_quot
                     approx_char_offset: None,
                 },
                 write_op: ModelWriteOp::Add,
+                evidence: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(

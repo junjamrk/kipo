@@ -362,6 +362,8 @@ pub fn mine_session_paths(
                 ingested_by: None,
                 media_type: Some("text/plain".into()),
                 model_policy: Some(route_policy.clone()),
+                thread_key: None,
+                reply_to: None,
             };
             let applied = match store.apply_public_ingest_record(&record, actor, route_policy) {
                 Ok(out) => out,

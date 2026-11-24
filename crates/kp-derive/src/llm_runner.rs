@@ -1179,6 +1179,11 @@ mod tests {
                 chunk_id: "c0".into(),
                 heading: "turn".into(),
                 body: body.into(),
+                source_id: SourceId::new("src_01")?,
+                author: "bob".parse()?,
+                base_anchor: Default::default(),
+                role: Default::default(),
+                reply_to_chunk_id: None,
             }],
             min_rate_limit_remaining_pct: 15,
         })
@@ -1220,6 +1225,7 @@ mod tests {
                                 "turn_ordinal": null,
                                 "approx_char_offset": null
                             },
+                            "evidence": null,
                             "write_op": {"op": "add", "target_fact_id": null}
                         }]
                     }

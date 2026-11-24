@@ -14,9 +14,9 @@ use kp_derive::{
 };
 use kp_model::{
     ActorId, AnchorSpec, AudienceSpec, BitemporalStamp, CalendarTable, ContentHash, EpochMs,
-    ExtractionBatchOutcome, ExtractionChunkSlice, Fact, FactAccess, FactId, FactKind, FactStatus,
-    GovernedScope, KpError, LlmClient, LogicalKey, MemberRole, MembershipRelation,
-    ModelRoutePolicy, ReviewId, ReviewKind, ReviewStatus, SecretRedactor, SourceOriginMeta,
+    ExtractionBatchOutcome, Fact, FactAccess, FactId, FactKind, FactStatus, GovernedScope, KpError,
+    LlmClient, LogicalKey, MemberRole, MembershipRelation, ModelRoutePolicy, ReviewId, ReviewKind,
+    ReviewStatus, SecretRedactor, SourceOriginMeta,
 };
 use kp_store::{
     ChunkInput, ExtractionJobInput, RawSourceInput, ScopeReviewFactUpdates, Store, StoreError,
@@ -1089,52 +1089,57 @@ async fn run_extract_inner(
         }
     };
 
-    for _ in 0..args.max_jobs {
+    let max_window_iters = args.max_jobs.saturating_mul(2).max(args.max_jobs);
+    for _ in 0..max_window_iters {
+        if jobs_processed >= args.max_jobs {
+            break;
+        }
         let lease_now = current_lease_clock();
-        let Some(job) = store.lease_next_extraction_job(lease_now, EXTRACTION_LEASE_DURATION_MS)?
+        let Some(window) = store.lease_extraction_window(
+            lease_now,
+            EXTRACTION_LEASE_DURATION_MS,
+            kp_model::DEFAULT_MAX_BATCH_TOKENS,
+        )?
         else {
             break;
         };
-        let job_policy = match kp_store::decode_queue_model_policy(&job.model_policy) {
+        let Some(head_job) = window.jobs.first().cloned() else {
+            break;
+        };
+        let job_specs: Vec<(String, u32)> = window
+            .jobs
+            .iter()
+            .map(|j| (j.job_id.clone(), j.attempts))
+            .collect();
+
+        let decoded_policy = match kp_store::decode_queue_model_policy(&head_job.model_policy) {
             Ok(pol) => pol,
             Err(err) => {
                 let err_str = err.to_string();
                 let fail_now = current_lease_clock();
-                let _ = store.release_extraction_job_for_retry(
-                    &job.job_id,
-                    job.attempts,
-                    &err_str,
-                    fail_now,
-                    1,
-                );
+                let _ =
+                    store.release_extraction_window_for_retry(&job_specs, &err_str, fail_now, 1);
                 if first_policy_error.is_none() {
                     first_policy_error = Some(err_str);
                 }
                 continue;
             }
         };
-        let source_eff_policy = store.source_effective_route_policy(&job.source_id)?;
-        let job_policy =
-            if source_eff_policy != job_policy && store.has_public_source_meta(&job.source_id)? {
-                source_eff_policy.clone()
-            } else {
-                job_policy
-            };
+        let mut any_raw_only = explicit_route_policy == ModelRoutePolicy::RawOnly;
+        let mut job_policy = decoded_policy;
+        for j in &window.jobs {
+            let eff = store.source_effective_route_policy(&j.source_id)?;
+            if eff == ModelRoutePolicy::RawOnly {
+                any_raw_only = true;
+            } else if eff != job_policy && store.has_public_source_meta(&j.source_id)? {
+                job_policy = eff;
+            }
+        }
 
-        if job_policy == ModelRoutePolicy::RawOnly
-            || source_eff_policy == ModelRoutePolicy::RawOnly
-            || explicit_route_policy == ModelRoutePolicy::RawOnly
-        {
-            match store.complete_extraction_job_fenced(
-                &job.job_id,
-                job.attempts,
-                &[],
-                None,
-                NL_SCHEMA_VER,
-                at,
-            ) {
+        if any_raw_only || job_policy == ModelRoutePolicy::RawOnly {
+            match store.complete_extraction_window_fenced(&job_specs, &[], NL_SCHEMA_VER, at) {
                 Ok(()) => {
-                    jobs_processed += 1;
+                    jobs_processed += job_specs.len();
                 }
                 Err(StoreError::Conflict) => {}
                 Err(err) => return Err(err.into()),
@@ -1153,13 +1158,8 @@ async fn run_extract_inner(
                         .unwrap_or("invalid gateway base_url")
                         .to_owned();
                     let fail_now = current_lease_clock();
-                    let _ = store.release_extraction_job_for_retry(
-                        &job.job_id,
-                        job.attempts,
-                        &err_str,
-                        fail_now,
-                        1,
-                    );
+                    let _ = store
+                        .release_extraction_window_for_retry(&job_specs, &err_str, fail_now, 1);
                     if first_policy_error.is_none() {
                         first_policy_error = Some(err_str);
                     }
@@ -1167,16 +1167,14 @@ async fn run_extract_inner(
                 } else if matches!(global_detected, DetectedGenerativeModel::RawOnly)
                     && !matches!(pol_lower.as_str(), "host" | "host_cli")
                 {
-                    match store.complete_extraction_job_fenced(
-                        &job.job_id,
-                        job.attempts,
+                    match store.complete_extraction_window_fenced(
+                        &job_specs,
                         &[],
-                        None,
                         NL_SCHEMA_VER,
                         at,
                     ) {
                         Ok(()) => {
-                            jobs_processed += 1;
+                            jobs_processed += job_specs.len();
                         }
                         Err(StoreError::Conflict) => {}
                         Err(err) => return Err(err.into()),
@@ -1193,12 +1191,8 @@ async fn run_extract_inner(
                         Err(err) => {
                             let err_str = err.to_string();
                             let fail_now = current_lease_clock();
-                            let _ = store.release_extraction_job_for_retry(
-                                &job.job_id,
-                                job.attempts,
-                                &err_str,
-                                fail_now,
-                                1,
+                            let _ = store.release_extraction_window_for_retry(
+                                &job_specs, &err_str, fail_now, 1,
                             );
                             if first_policy_error.is_none() {
                                 first_policy_error = Some(err_str);
@@ -1217,13 +1211,8 @@ async fn run_extract_inner(
                             "explicit CLI runner policy does not cover named endpoint `{ep_name}`"
                         );
                         let fail_now = current_lease_clock();
-                        let _ = store.release_extraction_job_for_retry(
-                            &job.job_id,
-                            job.attempts,
-                            &err_str,
-                            fail_now,
-                            1,
-                        );
+                        let _ = store
+                            .release_extraction_window_for_retry(&job_specs, &err_str, fail_now, 1);
                         if first_policy_error.is_none() {
                             first_policy_error = Some(err_str);
                         }
@@ -1240,12 +1229,8 @@ async fn run_extract_inner(
                         Err(err) => {
                             let err_str = err.to_string();
                             let fail_now = current_lease_clock();
-                            let _ = store.release_extraction_job_for_retry(
-                                &job.job_id,
-                                job.attempts,
-                                &err_str,
-                                fail_now,
-                                1,
+                            let _ = store.release_extraction_window_for_retry(
+                                &job_specs, &err_str, fail_now, 1,
                             );
                             if first_policy_error.is_none() {
                                 first_policy_error = Some(err_str);
@@ -1257,59 +1242,108 @@ async fn run_extract_inner(
             }
         };
 
-        let (source_aud, source_scope_id, source_uri, raw_chunks) =
-            match store.extraction_source_context(&job.source_id, &job.chunk_ids)? {
-                Some(ctx) => (ctx.readable_by, ctx.source_scope_id, ctx.uri, ctx.chunks),
-                None => (
-                    AudienceSpec::Explicit(BTreeSet::from([job.author.clone()])),
-                    None,
-                    String::new(),
-                    Vec::new(),
-                ),
-            };
-
-        let mut slices = Vec::new();
-        let mut chunk_id_hashes: Vec<(String, ContentHash)> = Vec::new();
-        for (cid, heading, body) in raw_chunks {
-            let digest = ContentHash::digest(&body);
-            if !args.force && store.is_chunk_extracted(&digest, &job.author, NL_SCHEMA_VER)? {
-                continue;
+        let mut context_slices = Vec::new();
+        let mut target_slices = Vec::new();
+        let mut target_chunk_records: Vec<(String, ContentHash, ActorId)> = Vec::new();
+        for slice in window.slices {
+            match slice.role {
+                kp_model::SliceRole::Context => {
+                    context_slices.push(slice);
+                }
+                kp_model::SliceRole::Target => {
+                    let digest = ContentHash::digest(&slice.body);
+                    if !args.force
+                        && store.is_chunk_extracted(&digest, &slice.author, NL_SCHEMA_VER)?
+                    {
+                        continue;
+                    }
+                    target_chunk_records.push((
+                        slice.chunk_id.clone(),
+                        digest,
+                        slice.author.clone(),
+                    ));
+                    target_slices.push(slice);
+                }
             }
-            let slice: ExtractionChunkSlice = serde_json::from_value(json!({
-                "chunk_id": cid.clone(),
-                "heading": heading,
-                "body": body,
-            }))?;
-            slices.push(slice);
-            chunk_id_hashes.push((cid, digest));
         }
 
-        if slices.is_empty() {
-            match store.complete_extraction_job_fenced(
-                &job.job_id,
-                job.attempts,
-                &[],
-                None,
-                NL_SCHEMA_VER,
-                at,
-            ) {
+        if target_slices.is_empty() {
+            match store.complete_extraction_window_fenced(&job_specs, &[], NL_SCHEMA_VER, at) {
                 Ok(()) => {
-                    jobs_processed += 1;
+                    jobs_processed += job_specs.len();
                 }
-                Err(StoreError::Conflict) => {}
+                Err(StoreError::Conflict) => {
+                    let retry_now = current_lease_clock();
+                    let _ = store.release_extraction_window_for_retry(
+                        &job_specs,
+                        "window_sibling_conflict",
+                        retry_now,
+                        EXTRACTION_MAX_ATTEMPTS,
+                    );
+                }
                 Err(err) => return Err(err.into()),
             }
             continue;
         }
 
+        if context_slices.is_empty()
+            && target_slices
+                .iter()
+                .all(|s| kp_derive::is_chunk_trivial_or_ack_only(&s.body))
+        {
+            let ack_hashes: Vec<(ContentHash, ActorId)> = target_chunk_records
+                .iter()
+                .map(|(_, d, a)| (d.clone(), a.clone()))
+                .collect();
+            match store.complete_extraction_window_fenced(
+                &job_specs,
+                &ack_hashes,
+                NL_SCHEMA_VER,
+                at,
+            ) {
+                Ok(()) => {
+                    jobs_processed += job_specs.len();
+                }
+                Err(StoreError::Conflict) => {
+                    let retry_now = current_lease_clock();
+                    let _ = store.release_extraction_window_for_retry(
+                        &job_specs,
+                        "window_sibling_conflict",
+                        retry_now,
+                        EXTRACTION_MAX_ATTEMPTS,
+                    );
+                }
+                Err(err) => return Err(err.into()),
+            }
+            continue;
+        }
+
+        let primary_speaker = target_slices
+            .first()
+            .map(|s| s.author.clone())
+            .unwrap_or_else(|| head_job.author.clone());
+        let primary_source_id = target_slices
+            .first()
+            .map(|s| s.source_id.clone())
+            .unwrap_or_else(|| head_job.source_id.clone());
+        let window_ref_time = window
+            .jobs
+            .iter()
+            .map(|j| j.reference_time)
+            .max()
+            .unwrap_or(head_job.reference_time);
+
+        let mut slices = context_slices;
+        slices.extend(target_slices);
+
         let cal =
-            CalendarTable::from_reference_in_tz(job.reference_time, &kp_model::system_time_zone())?;
+            CalendarTable::from_reference_in_tz(window_ref_time, &kp_model::system_time_zone())?;
         let active_concepts = store.list_active_concepts()?;
         let req = build_extraction_batch_request_for_policy(
             store,
             kp_derive::ExtractionBatchBuildInput {
-                source_id: job.source_id.clone(),
-                speaker: job.author.clone(),
+                source_id: primary_source_id,
+                speaker: primary_speaker.clone(),
                 reference_calendar: cal,
                 active_concepts,
                 chunks: slices,
@@ -1324,17 +1358,15 @@ async fn run_extract_inner(
                 let err_str = err.to_string();
                 let fail_now = current_lease_clock();
                 if is_quota_error_message(&err_str) {
-                    if store
-                        .pause_extraction_job_quota_fenced(&job.job_id, job.attempts, &err_str)
-                        .is_ok()
+                    if let Ok(paused) =
+                        store.pause_extraction_window_quota_fenced(&job_specs, &err_str)
                     {
-                        jobs_paused_quota += 1;
+                        jobs_paused_quota += paused;
                     }
                     break;
                 }
-                let _ = store.release_extraction_job_for_retry(
-                    &job.job_id,
-                    job.attempts,
+                let _ = store.release_extraction_window_for_retry(
+                    &job_specs,
                     &err_str,
                     fail_now,
                     EXTRACTION_MAX_ATTEMPTS,
@@ -1344,40 +1376,51 @@ async fn run_extract_inner(
         };
 
         let post_llm_now = current_lease_clock();
-        if !store.verify_extraction_job_lease(&job.job_id, job.attempts, post_llm_now)? {
+        if !store.verify_extraction_window_leases(&job_specs, post_llm_now)? {
+            let _ = store.release_extraction_window_for_retry(
+                &job_specs,
+                "window_sibling_conflict",
+                post_llm_now,
+                EXTRACTION_MAX_ATTEMPTS,
+            );
             continue;
         }
 
         let atoms = match batch_outcome {
             ExtractionBatchOutcome::SkippedLowQuota { .. } => {
-                match store.pause_extraction_job_quota_fenced(
-                    &job.job_id,
-                    job.attempts,
+                let paused = store.pause_extraction_window_quota_fenced(
+                    &job_specs,
                     "low host rate-limit headroom",
-                ) {
-                    Ok(()) => {
-                        jobs_paused_quota += 1;
-                        break;
-                    }
-                    Err(StoreError::Conflict) => continue,
-                    Err(err) => return Err(err.into()),
+                )?;
+                if paused > 0 {
+                    jobs_paused_quota += paused;
+                    break;
                 }
+                continue;
             }
             ExtractionBatchOutcome::SkippedEmpty => {
-                let chunk_hashes: Vec<ContentHash> =
-                    chunk_id_hashes.iter().map(|(_, h)| h.clone()).collect();
-                match store.complete_extraction_job_fenced(
-                    &job.job_id,
-                    job.attempts,
+                let chunk_hashes: Vec<(ContentHash, ActorId)> = target_chunk_records
+                    .iter()
+                    .map(|(_, d, a)| (d.clone(), a.clone()))
+                    .collect();
+                match store.complete_extraction_window_fenced(
+                    &job_specs,
                     &chunk_hashes,
-                    Some(&job.author),
                     NL_SCHEMA_VER,
                     at,
                 ) {
                     Ok(()) => {
-                        jobs_processed += 1;
+                        jobs_processed += job_specs.len();
                     }
-                    Err(StoreError::Conflict) => {}
+                    Err(StoreError::Conflict) => {
+                        let retry_now = current_lease_clock();
+                        let _ = store.release_extraction_window_for_retry(
+                            &job_specs,
+                            "window_sibling_conflict",
+                            retry_now,
+                            EXTRACTION_MAX_ATTEMPTS,
+                        );
+                    }
                     Err(err) => return Err(err.into()),
                 }
                 continue;
@@ -1386,23 +1429,16 @@ async fn run_extract_inner(
         };
 
         let mut unextracted_ids = BTreeSet::new();
-        let mut final_chunk_hashes = Vec::with_capacity(chunk_id_hashes.len());
-        for (cid, digest) in chunk_id_hashes {
-            if !args.force && store.is_chunk_extracted(&digest, &job.author, NL_SCHEMA_VER)? {
+        let mut final_chunk_hashes = Vec::with_capacity(target_chunk_records.len());
+        for (cid, digest, slice_author) in target_chunk_records {
+            if !args.force && store.is_chunk_extracted(&digest, &slice_author, NL_SCHEMA_VER)? {
                 continue;
             }
             unextracted_ids.insert(cid);
-            final_chunk_hashes.push(digest);
+            final_chunk_hashes.push((digest, slice_author));
         }
         if unextracted_ids.is_empty() {
-            let _ = store.complete_extraction_job_fenced(
-                &job.job_id,
-                job.attempts,
-                &[],
-                None,
-                NL_SCHEMA_VER,
-                at,
-            );
+            let _ = store.complete_extraction_window_fenced(&job_specs, &[], NL_SCHEMA_VER, at);
             continue;
         }
         let filtered_atoms: Vec<_> = atoms
@@ -1410,14 +1446,23 @@ async fn run_extract_inner(
             .filter(|a| unextracted_ids.contains(&a.quote.chunk_id))
             .collect();
 
+        let source_trust_floor = if window.source_scope_id.is_some() {
+            kp_model::TrustTier::ToolOrModelVerified
+        } else if window.has_http_uri {
+            kp_model::TrustTier::ExternalUntrusted
+        } else {
+            NlFunnelOptions::trust_floor_for_uri(&window.primary_uri)
+        };
+        let effective_ingester = window.ingested_by.clone().unwrap_or_else(|| actor.clone());
+
         let nl_opts = NlFunnelOptions {
-            audience: source_aud,
-            at: job.reference_time,
+            audience: window.readable_by,
+            at: window_ref_time,
             route_policy: job_policy,
-            source_trust_floor: NlFunnelOptions::trust_floor_for_uri(&source_uri),
-            source_origin: source_scope_id.map(|scope_id| SourceOriginMeta {
-                speaker: job.author.clone(),
-                ingested_by: actor.clone(),
+            source_trust_floor,
+            source_origin: window.source_scope_id.map(|scope_id| SourceOriginMeta {
+                speaker: primary_speaker.clone(),
+                ingested_by: effective_ingester,
                 source_scope_id: scope_id,
             }),
             rejections: store.list_rejections(None)?,
@@ -1430,9 +1475,8 @@ async fn run_extract_inner(
             Err(err) => {
                 let err_str = err.to_string();
                 let fail_now = current_lease_clock();
-                let _ = store.release_extraction_job_for_retry(
-                    &job.job_id,
-                    job.attempts,
+                let _ = store.release_extraction_window_for_retry(
+                    &job_specs,
                     &err_str,
                     fail_now,
                     EXTRACTION_MAX_ATTEMPTS,
@@ -1443,17 +1487,23 @@ async fn run_extract_inner(
 
         let commit_now = current_lease_clock();
         match store.commit_staged_extraction_job_fenced(&kp_store::FencedJobCommitSpec {
-            job_id: &job.job_id,
-            expected_attempts: job.attempts,
+            jobs: &job_specs,
             lease_now: commit_now,
             batch: &staged,
             chunk_hashes: &final_chunk_hashes,
-            author: Some(&job.author),
             schema_ver: NL_SCHEMA_VER,
             at,
         }) {
             Ok(()) => {}
-            Err(StoreError::Conflict) => continue,
+            Err(StoreError::Conflict) => {
+                let _ = store.release_extraction_window_for_retry(
+                    &job_specs,
+                    "window_sibling_conflict",
+                    commit_now,
+                    EXTRACTION_MAX_ATTEMPTS,
+                );
+                continue;
+            }
             Err(err) => return Err(err.into()),
         }
 
@@ -1468,7 +1518,7 @@ async fn run_extract_inner(
         created_facts.extend(outcome.created_fact_ids);
         superseded_facts.extend(outcome.superseded_old_fact_ids);
         dropped_rejected.extend(outcome.dropped_rejected);
-        jobs_processed += 1;
+        jobs_processed += job_specs.len();
     }
 
     let align_override = explicit_host_llm.as_deref();

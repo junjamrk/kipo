@@ -269,6 +269,10 @@ pub struct PublicIngestRecord {
     /// Optional advanced model routing override; omitted (`None`) when inheriting the global model.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_policy: Option<ModelRoutePolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
 }
 
 const PUBLIC_INGEST_RECORD_FIELDS: &[&str] = &[
@@ -282,6 +286,8 @@ const PUBLIC_INGEST_RECORD_FIELDS: &[&str] = &[
     "ingested_by",
     "media_type",
     "model_policy",
+    "thread_key",
+    "reply_to",
 ];
 
 impl<'de> Deserialize<'de> for PublicIngestRecord {
@@ -314,6 +320,8 @@ impl<'de> Deserialize<'de> for PublicIngestRecord {
                 let mut ingested_by: Option<Option<ActorId>> = None;
                 let mut media_type: Option<Option<String>> = None;
                 let mut model_policy: Option<Option<ModelRoutePolicy>> = None;
+                let mut thread_key: Option<Option<String>> = None;
+                let mut reply_to: Option<Option<String>> = None;
 
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
@@ -378,6 +386,18 @@ impl<'de> Deserialize<'de> for PublicIngestRecord {
                             }
                             model_policy = Some(map.next_value()?);
                         }
+                        "thread_key" => {
+                            if thread_key.is_some() {
+                                return Err(de::Error::duplicate_field("thread_key"));
+                            }
+                            thread_key = Some(map.next_value()?);
+                        }
+                        "reply_to" => {
+                            if reply_to.is_some() {
+                                return Err(de::Error::duplicate_field("reply_to"));
+                            }
+                            reply_to = Some(map.next_value()?);
+                        }
                         other => {
                             return Err(de::Error::unknown_field(
                                 other,
@@ -437,6 +457,8 @@ impl<'de> Deserialize<'de> for PublicIngestRecord {
                     ingested_by: ingested_by.flatten(),
                     media_type: media_type.flatten(),
                     model_policy: model_policy.flatten(),
+                    thread_key: thread_key.flatten(),
+                    reply_to: reply_to.flatten(),
                 })
             }
         }
@@ -455,6 +477,12 @@ impl PublicIngestRecord {
         self.op.validate(&self.source.external_id, &self.content)?;
         if let Some(mt) = &self.media_type {
             validate_nonempty_clean(mt, "media_type", "media_type must be nonempty")?;
+        }
+        if let Some(tk) = &self.thread_key {
+            validate_nonempty_clean(tk, "thread_key", "thread_key must be nonempty")?;
+        }
+        if let Some(rt) = &self.reply_to {
+            validate_nonempty_clean(rt, "reply_to", "reply_to must be nonempty")?;
         }
         Ok(())
     }
@@ -714,6 +742,8 @@ mod tests {
             ingested_by: Some(alice.clone()),
             media_type: Some("text/plain".into()),
             model_policy: None,
+            thread_key: None,
+            reply_to: None,
         };
         let upsert_val: Value = serde_json::from_str(&upsert_rec.to_jsonl_line()?)
             .map_err(|e| KpError::invalid_input_json("test", e.to_string()))?;

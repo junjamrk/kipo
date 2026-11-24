@@ -1,9 +1,11 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::str::FromStr;
 
 use kp_model::{
-    is_bare_content_hash, ActorId, CommunityConcept, ConceptId, ContentHash, EpochMs, Fact, FactId,
-    Justification, KpError, SourceId,
+    estimate_batch_tokens, has_tagged_turns, is_bare_content_hash, ActorId, AnchorSpec,
+    AudienceSpec, CommunityConcept, ConceptId, ContentHash, EpochMs, ExtractionChunkSlice, Fact,
+    FactId, Justification, KpError, SliceRole, SourceId, SourceScopeId, DEFAULT_MAX_BATCH_TOKENS,
 };
 use rusqlite::{params, OptionalExtension, Row, TransactionBehavior};
 use serde::{Deserialize, Serialize};
@@ -95,14 +97,24 @@ impl FromStr for ExtractionJobStatus {
 /// Parameters for [`Store::commit_staged_extraction_job_fenced`].
 #[derive(Clone, Debug)]
 pub struct FencedJobCommitSpec<'a> {
-    pub job_id: &'a str,
-    pub expected_attempts: u32,
+    pub jobs: &'a [(String, u32)],
     pub lease_now: EpochMs,
     pub batch: &'a StagedExtractionBatch,
-    pub chunk_hashes: &'a [ContentHash],
-    pub author: Option<&'a ActorId>,
+    pub chunk_hashes: &'a [(ContentHash, ActorId)],
     pub schema_ver: &'a str,
     pub at: EpochMs,
+}
+
+/// Multi-job extraction window leased atomically via [`Store::lease_extraction_window`].
+#[derive(Clone, Debug)]
+pub struct LeasedExtractionWindow {
+    pub jobs: Vec<ExtractionJob>,
+    pub readable_by: AudienceSpec,
+    pub source_scope_id: Option<SourceScopeId>,
+    pub ingested_by: Option<ActorId>,
+    pub primary_uri: String,
+    pub has_http_uri: bool,
+    pub slices: Vec<ExtractionChunkSlice>,
 }
 
 /// Parameters to enqueue an out-of-session batch extraction job.
@@ -134,6 +146,10 @@ pub struct ExtractionJob {
     pub attempts: u32,
     pub last_error: Option<String>,
     pub created_at: EpochMs,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to_key: Option<String>,
 }
 
 impl Store {
@@ -230,6 +246,15 @@ impl Store {
     /// Idempotently enqueues a batch extraction job into `extraction_queue` (`job_<uuidv7>`).
     /// Rejects `raw_only` policies so compliance-locked connectors never reach an LLM runner.
     pub fn enqueue_extraction_job(&mut self, input: &ExtractionJobInput) -> Result<ExtractionJob> {
+        self.enqueue_extraction_job_with_thread(input, None, None)
+    }
+
+    pub fn enqueue_extraction_job_with_thread(
+        &mut self,
+        input: &ExtractionJobInput,
+        thread_key: Option<&str>,
+        reply_to_key: Option<&str>,
+    ) -> Result<ExtractionJob> {
         if input.chunk_ids.is_empty() || input.chunk_ids.iter().any(|c| c.trim().is_empty()) {
             return Err(KpError::invalid(
                 "chunk_ids",
@@ -245,6 +270,8 @@ impl Store {
             )
             .into());
         }
+        let clean_thread = thread_key.map(str::trim).filter(|s| !s.is_empty());
+        let clean_reply = reply_to_key.map(str::trim).filter(|s| !s.is_empty());
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -252,7 +279,7 @@ impl Store {
             .query_row(
                 "SELECT job_id, source_id, chunk_ids_json, chunk_batch_sha256, author_actor,
                         model_policy, priority, reference_time, status, lease_until, attempts,
-                        last_error, created_at
+                        last_error, created_at, thread_key, reply_to_key
                  FROM extraction_queue
                  WHERE source_id = ?1
                    AND chunk_batch_sha256 = ?2
@@ -283,8 +310,9 @@ impl Store {
         tx.execute(
             "INSERT INTO extraction_queue
                 (job_id, source_id, chunk_ids_json, chunk_batch_sha256, author_actor, model_policy,
-                 priority, reference_time, status, lease_until, attempts, last_error, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', NULL, 0, NULL, ?9)",
+                 priority, reference_time, status, lease_until, attempts, last_error, created_at,
+                 thread_key, reply_to_key)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', NULL, 0, NULL, ?9, ?10, ?11)",
             params![
                 job_id,
                 input.source_id.as_str(),
@@ -295,6 +323,8 @@ impl Store {
                 input.priority,
                 input.reference_time.0,
                 input.created_at.0,
+                clean_thread,
+                clean_reply,
             ],
         )?;
         tx.commit()?;
@@ -313,6 +343,8 @@ impl Store {
             attempts: 0,
             last_error: None,
             created_at: input.created_at,
+            thread_key: clean_thread.map(str::to_owned),
+            reply_to_key: clean_reply.map(str::to_owned),
         })
     }
 
@@ -336,22 +368,7 @@ impl Store {
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        tx.execute(
-            "UPDATE extraction_queue
-             SET status = 'done', lease_until = NULL, last_error = 'cancelled_raw_only'
-             WHERE status IN ('pending', 'leased', 'paused_quota', 'failed_permanent')
-               AND EXISTS (
-                   SELECT 1 FROM change_log cl
-                   WHERE cl.op = 'raw_only_source' AND cl.target_id = extraction_queue.source_id
-               )",
-            [],
-        )?;
-        tx.execute(
-            "UPDATE extraction_queue
-             SET status = 'pending', lease_until = NULL
-             WHERE status = 'leased' AND lease_until IS NOT NULL AND lease_until <= ?1",
-            [now.0],
-        )?;
+        reconcile_queue_leases_tx(&tx, now)?;
 
         let next_id: Option<String> = tx
             .query_row(
@@ -378,7 +395,7 @@ impl Store {
         let leased = tx.query_row(
             "SELECT job_id, source_id, chunk_ids_json, chunk_batch_sha256, author_actor,
                     model_policy, priority, reference_time, status, lease_until, attempts,
-                    last_error, created_at
+                    last_error, created_at, thread_key, reply_to_key
              FROM extraction_queue
              WHERE job_id = ?1",
             [job_id],
@@ -386,6 +403,281 @@ impl Store {
         )??;
         tx.commit()?;
         Ok(Some(leased))
+    }
+
+    /// Leases an extraction window: a single job for documents and `AgentSession` tagged transcripts,
+    /// or a bounded multi-job window (`<= max_batch_tokens`) plus up to `5` preceding `SliceRole::Context`
+    /// slices when `thread_key.is_some()` and all grouped jobs share identical
+    /// `(source_scope_id, readable_by, model_policy, ingested_by, thread_key)`.
+    pub fn lease_extraction_window(
+        &mut self,
+        now: EpochMs,
+        lease_duration_ms: i64,
+        max_batch_tokens: usize,
+    ) -> Result<Option<LeasedExtractionWindow>> {
+        if lease_duration_ms <= 0 {
+            return Err(
+                KpError::invalid("lease_duration_ms", "lease duration must be positive").into(),
+            );
+        }
+        let lease_until = EpochMs(
+            now.0
+                .checked_add(lease_duration_ms)
+                .ok_or_else(|| KpError::invalid("lease_until", "timestamp overflow"))?,
+        );
+        let budget = if max_batch_tokens == 0 {
+            DEFAULT_MAX_BATCH_TOKENS
+        } else {
+            max_batch_tokens
+        }
+        .max(1);
+
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        reconcile_queue_leases_tx(&tx, now)?;
+
+        loop {
+            let head: Option<ExtractionJob> = tx
+                .query_row(
+                    "SELECT job_id, source_id, chunk_ids_json, chunk_batch_sha256, author_actor,
+                            model_policy, priority, reference_time, status, lease_until, attempts,
+                            last_error, created_at, thread_key, reply_to_key
+                     FROM extraction_queue
+                     WHERE status = 'pending'
+                     ORDER BY priority DESC, created_at ASC, reference_time ASC, job_id ASC
+                     LIMIT 1",
+                    [],
+                    read_job_row,
+                )
+                .optional()?
+                .transpose()?;
+            let Some(head_job) = head else {
+                tx.commit()?;
+                return Ok(None);
+            };
+
+            let Some(head_meta) = load_window_source_meta_tx(&tx, &head_job.source_id)? else {
+                let leased = lease_single_job_in_tx(&tx, &head_job.job_id, lease_until)?;
+                let fallback_aud = AudienceSpec::Explicit(BTreeSet::from([leased.author.clone()]));
+                tx.commit()?;
+                return Ok(Some(LeasedExtractionWindow {
+                    jobs: vec![leased],
+                    readable_by: fallback_aud,
+                    source_scope_id: None,
+                    ingested_by: None,
+                    primary_uri: String::new(),
+                    has_http_uri: false,
+                    slices: Vec::new(),
+                }));
+            };
+
+            if head_meta.superseded_by_source.is_some() {
+                tx.execute(
+                    "UPDATE extraction_queue
+                     SET status = 'done', lease_until = NULL, last_error = 'cancelled_superseded'
+                     WHERE job_id = ?1",
+                    [&head_job.job_id],
+                )?;
+                let _ = complete_session_source_span_tx(&tx, &head_job.source_id)?;
+                continue;
+            }
+
+            let head_chunks = load_job_chunks_tx(&tx, &head_job.source_id, &head_job.chunk_ids)?;
+            let head_has_tagged = head_chunks.iter().any(|c| has_tagged_turns(&c.body));
+            let clean_tkey = head_job
+                .thread_key
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+
+            if clean_tkey.is_none() || head_has_tagged {
+                let leased = lease_single_job_in_tx(&tx, &head_job.job_id, lease_until)?;
+                let slices = head_chunks
+                    .into_iter()
+                    .map(|c| ExtractionChunkSlice {
+                        chunk_id: c.chunk_id,
+                        source_id: leased.source_id.clone(),
+                        author: leased.author.clone(),
+                        base_anchor: c.base_anchor,
+                        role: SliceRole::Target,
+                        reply_to_chunk_id: None,
+                        heading: c.heading,
+                        body: c.body,
+                    })
+                    .collect();
+                let has_http = uri_is_http(&head_meta.uri);
+                tx.commit()?;
+                return Ok(Some(LeasedExtractionWindow {
+                    jobs: vec![leased],
+                    readable_by: head_meta.readable_by,
+                    source_scope_id: head_meta.source_scope_id,
+                    ingested_by: head_meta.ingested_by,
+                    primary_uri: head_meta.uri,
+                    has_http_uri: has_http,
+                    slices,
+                }));
+            }
+
+            let tkey = clean_tkey.unwrap_or("");
+            let mut selected: Vec<(ExtractionJob, WindowSourceMeta, Vec<LoadedChunkRow>)> =
+                Vec::new();
+            let head_tokens = estimate_chunks_tokens(&head_chunks);
+            let mut running_tokens = head_tokens;
+            selected.push((head_job.clone(), head_meta.clone(), head_chunks));
+
+            let candidates: Vec<ExtractionJob> = {
+                let mut stmt = tx.prepare(
+                    "SELECT job_id, source_id, chunk_ids_json, chunk_batch_sha256, author_actor,
+                            model_policy, priority, reference_time, status, lease_until, attempts,
+                            last_error, created_at, thread_key, reply_to_key
+                     FROM extraction_queue
+                     WHERE status = 'pending'
+                       AND thread_key = ?1
+                       AND model_policy = ?2
+                       AND job_id != ?3
+                     ORDER BY reference_time ASC, created_at ASC, job_id ASC",
+                )?;
+                let rows = stmt.query_map(
+                    params![tkey, &head_job.model_policy, &head_job.job_id],
+                    read_job_row,
+                )?;
+                rows.map(|r| r?).collect::<Result<Vec<_>>>()?
+            };
+
+            for cand in candidates {
+                if crate::facts::is_source_marked_raw_only(&tx, cand.source_id.as_str())? {
+                    continue;
+                }
+                let Some(cand_meta) = load_window_source_meta_tx(&tx, &cand.source_id)? else {
+                    continue;
+                };
+                if cand_meta.superseded_by_source.is_some()
+                    || cand_meta.source_scope_id != head_meta.source_scope_id
+                    || cand_meta.readable_by != head_meta.readable_by
+                    || cand_meta.ingested_by != head_meta.ingested_by
+                {
+                    continue;
+                }
+                let cand_chunks = load_job_chunks_tx(&tx, &cand.source_id, &cand.chunk_ids)?;
+                if cand_chunks.iter().any(|c| has_tagged_turns(&c.body)) {
+                    continue;
+                }
+                let cand_tokens = estimate_chunks_tokens(&cand_chunks);
+                if running_tokens.saturating_add(cand_tokens) > budget {
+                    break;
+                }
+                running_tokens = running_tokens.saturating_add(cand_tokens);
+                selected.push((cand, cand_meta, cand_chunks));
+            }
+
+            selected.sort_by(|a, b| {
+                a.0.reference_time
+                    .cmp(&b.0.reference_time)
+                    .then_with(|| a.0.created_at.cmp(&b.0.created_at))
+                    .then_with(|| a.0.job_id.cmp(&b.0.job_id))
+            });
+
+            let mut leased_jobs = Vec::with_capacity(selected.len());
+            for (job, _, _) in &selected {
+                leased_jobs.push(lease_single_job_in_tx(&tx, &job.job_id, lease_until)?);
+            }
+
+            let earliest_ref = selected
+                .first()
+                .map_or(head_job.reference_time, |(j, _, _)| j.reference_time);
+            let target_source_ids: BTreeSet<String> = selected
+                .iter()
+                .map(|(j, _, _)| j.source_id.as_str().to_owned())
+                .collect();
+
+            let context_entries = load_thread_context_entries_tx(
+                &tx,
+                &ThreadContextQuerySpec {
+                    thread_key: tkey,
+                    model_policy: &head_job.model_policy,
+                    earliest_ref,
+                    head_meta: &head_meta,
+                    target_source_ids: &target_source_ids,
+                    target_reply_keys: &selected
+                        .iter()
+                        .filter_map(|(j, _, _)| j.reply_to_key.clone())
+                        .collect::<Vec<_>>(),
+                },
+            )?;
+
+            let mut ext_key_to_chunk_id: BTreeMap<String, String> = BTreeMap::new();
+            for ctx_entry in &context_entries {
+                if let Some(ref ext_key) = ctx_entry.external_source_key {
+                    register_ext_key_mapping(
+                        &mut ext_key_to_chunk_id,
+                        ext_key,
+                        &ctx_entry.chunk.chunk_id,
+                    );
+                }
+            }
+            for (_, meta, chunks) in &selected {
+                if let (Some(ext_key), Some(first_c)) = (&meta.external_source_key, chunks.first())
+                {
+                    register_ext_key_mapping(&mut ext_key_to_chunk_id, ext_key, &first_c.chunk_id);
+                }
+            }
+
+            let mut slices = Vec::with_capacity(context_entries.len() + selected.len());
+            for ctx_entry in context_entries {
+                let reply_to_chunk_id = ctx_entry
+                    .reply_to_key
+                    .as_deref()
+                    .and_then(|rk| ext_key_to_chunk_id.get(rk).cloned());
+                slices.push(ExtractionChunkSlice {
+                    chunk_id: ctx_entry.chunk.chunk_id,
+                    source_id: ctx_entry.source_id,
+                    author: ctx_entry.author,
+                    base_anchor: ctx_entry.chunk.base_anchor,
+                    role: SliceRole::Context,
+                    reply_to_chunk_id,
+                    heading: ctx_entry.chunk.heading,
+                    body: ctx_entry.chunk.body,
+                });
+            }
+
+            let mut has_http_uri = false;
+            for ((_, meta, chunks), leased_job) in selected.into_iter().zip(leased_jobs.iter()) {
+                has_http_uri |= uri_is_http(&meta.uri);
+                let reply_to_chunk_id = leased_job
+                    .reply_to_key
+                    .as_deref()
+                    .and_then(|rk| ext_key_to_chunk_id.get(rk).cloned());
+                for (idx, c) in chunks.into_iter().enumerate() {
+                    slices.push(ExtractionChunkSlice {
+                        chunk_id: c.chunk_id,
+                        source_id: leased_job.source_id.clone(),
+                        author: leased_job.author.clone(),
+                        base_anchor: c.base_anchor,
+                        role: SliceRole::Target,
+                        reply_to_chunk_id: if idx == 0 {
+                            reply_to_chunk_id.clone()
+                        } else {
+                            None
+                        },
+                        heading: c.heading,
+                        body: c.body,
+                    });
+                }
+            }
+
+            let primary_uri = head_meta.uri;
+            tx.commit()?;
+            return Ok(Some(LeasedExtractionWindow {
+                jobs: leased_jobs,
+                readable_by: head_meta.readable_by,
+                source_scope_id: head_meta.source_scope_id,
+                ingested_by: head_meta.ingested_by,
+                primary_uri,
+                has_http_uri,
+                slices,
+            }));
+        }
     }
 
     /// Transitions a job to `paused_quota` without losing its cursor or counting as permanent failure.
@@ -573,84 +865,238 @@ impl Store {
         Ok(())
     }
 
-    /// Atomically verifies that `job_id` is still actively leased under `expected_attempts` at `lease_now`
-    /// (`status = 'leased' AND attempts = expected_attempts AND (lease_until IS NULL OR lease_until > lease_now)`),
-    /// applies all staged fact/supersede/derivation/concept writes, marks `extracted_chunks`, transitions
-    /// the job to `'done'`, and advances any `session_source_span` in ONE `TransactionBehavior::Immediate`
-    /// transaction — rolling back 100% of writes on `Err(StoreError::Conflict)`.
+    /// Atomically verifies that all `(job_id, expected_attempts)` in `spec.jobs` are still actively
+    /// leased at `lease_now` (`changed == spec.jobs.len()`), applies all staged writes, marks
+    /// per-slice `(chunk_sha256, author_actor)` in `extracted_chunks`, transitions all jobs to `'done'`,
+    /// and advances any `session_source_span` in ONE `TransactionBehavior::Immediate` transaction —
+    /// rolling back 100% of writes on `Err(StoreError::Conflict)`.
     pub fn commit_staged_extraction_job_fenced(
         &mut self,
         spec: &FencedJobCommitSpec<'_>,
     ) -> Result<()> {
         let FencedJobCommitSpec {
-            job_id,
-            expected_attempts,
+            jobs,
             lease_now,
             batch,
             chunk_hashes,
-            author,
             schema_ver,
             at,
         } = *spec;
-        if !chunk_hashes.is_empty() && (author.is_none() || schema_ver.trim().is_empty()) {
+        if jobs.is_empty() {
+            return Err(KpError::invalid("jobs", "fenced commit requires at least one job").into());
+        }
+        if !chunk_hashes.is_empty() && schema_ver.trim().is_empty() {
             return Err(KpError::invalid(
                 "extracted_chunks",
-                "recording extracted chunks requires author and nonempty schema_ver",
+                "recording extracted chunks requires nonempty schema_ver",
             )
             .into());
         }
         let tx = self
             .db
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let source_id_str: Option<String> = tx
-            .query_row(
-                "SELECT source_id FROM extraction_queue WHERE job_id = ?1",
-                [job_id],
-                |r| r.get(0),
-            )
-            .optional()?;
-        let Some(source_id_str) = source_id_str else {
-            return Err(StoreError::NotFound);
-        };
-        if crate::facts::is_source_marked_raw_only(&tx, &source_id_str)? {
-            tx.execute(
-                "UPDATE extraction_queue
-                 SET status = 'done', lease_until = NULL, last_error = 'cancelled_raw_only'
-                 WHERE job_id = ?1",
-                [job_id],
-            )?;
-            let source_id: SourceId = source_id_str.parse()?;
-            let _ = complete_session_source_span_tx(&tx, &source_id)?;
+        let mut source_ids = Vec::with_capacity(jobs.len());
+        let mut raw_only_jobs = Vec::new();
+        for (job_id, _) in jobs {
+            let sid_str: Option<String> = tx
+                .query_row(
+                    "SELECT source_id FROM extraction_queue WHERE job_id = ?1",
+                    [job_id.as_str()],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let Some(sid_str) = sid_str else {
+                return Err(StoreError::NotFound);
+            };
+            if crate::facts::is_source_marked_raw_only(&tx, &sid_str)? {
+                raw_only_jobs.push((job_id.as_str(), sid_str.clone()));
+            }
+            source_ids.push(sid_str);
+        }
+        if !raw_only_jobs.is_empty() {
+            for (job_id, sid_str) in raw_only_jobs {
+                tx.execute(
+                    "UPDATE extraction_queue
+                     SET status = 'done', lease_until = NULL, last_error = 'cancelled_raw_only'
+                     WHERE job_id = ?1",
+                    [job_id],
+                )?;
+                let sid: SourceId = sid_str.parse()?;
+                let _ = complete_session_source_span_tx(&tx, &sid)?;
+            }
             tx.commit()?;
             return Err(StoreError::Conflict);
         }
-        let changed = tx.execute(
-            "UPDATE extraction_queue
-             SET status = 'done', lease_until = NULL, last_error = NULL
-             WHERE job_id = ?1
-               AND status = 'leased'
-               AND attempts = ?2
-               AND (lease_until IS NULL OR lease_until > ?3)",
-            params![job_id, expected_attempts, lease_now.0],
-        )?;
-        if changed == 0 {
+
+        let mut changed_total = 0usize;
+        for (job_id, expected_attempts) in jobs {
+            changed_total += tx.execute(
+                "UPDATE extraction_queue
+                 SET status = 'done', lease_until = NULL, last_error = NULL
+                 WHERE job_id = ?1
+                   AND status = 'leased'
+                   AND attempts = ?2
+                   AND (lease_until IS NULL OR lease_until > ?3)",
+                params![job_id, expected_attempts, lease_now.0],
+            )?;
+        }
+        if changed_total != jobs.len() {
             return Err(StoreError::Conflict);
         }
+
         apply_staged_extraction_batch_tx(&tx, batch, &self.tokenizer, self.embedder.as_ref())?;
-        if let Some(actor) = author {
-            for hash in chunk_hashes {
+        for (hash, actor) in chunk_hashes {
+            tx.execute(
+                "INSERT INTO extracted_chunks (chunk_sha256, author_actor, schema_ver, extracted_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(chunk_sha256, author_actor, schema_ver) DO NOTHING",
+                params![hash.as_str(), actor.as_str(), schema_ver.trim(), at.0],
+            )?;
+        }
+        let mut completed_sources = BTreeSet::new();
+        for sid_str in source_ids {
+            if completed_sources.insert(sid_str.clone()) {
+                let sid: SourceId = sid_str.parse()?;
+                let _ = complete_session_source_span_tx(&tx, &sid)?;
+            }
+        }
+        tx.commit()?;
+        post_commit_staged_extraction_effects(self, batch)?;
+        Ok(())
+    }
+
+    /// Checks whether all `(job_id, expected_attempts)` in `jobs` are still actively leased at `now`.
+    pub fn verify_extraction_window_leases(
+        &self,
+        jobs: &[(String, u32)],
+        now: EpochMs,
+    ) -> Result<bool> {
+        for (job_id, expected_attempts) in jobs {
+            if !self.verify_extraction_job_lease(job_id, *expected_attempts, now)? {
+                return Ok(false);
+            }
+        }
+        Ok(!jobs.is_empty())
+    }
+
+    /// Multi-job lease-fenced completion without staged facts (`SkippedEmpty` / pre-LLM ack skip),
+    /// rolling back completely if any job in `jobs` lost its lease.
+    pub fn complete_extraction_window_fenced(
+        &mut self,
+        jobs: &[(String, u32)],
+        chunk_hashes: &[(ContentHash, ActorId)],
+        schema_ver: &str,
+        at: EpochMs,
+    ) -> Result<()> {
+        if jobs.is_empty() {
+            return Err(
+                KpError::invalid("jobs", "fenced completion requires at least one job").into(),
+            );
+        }
+        if !chunk_hashes.is_empty() && schema_ver.trim().is_empty() {
+            return Err(KpError::invalid(
+                "extracted_chunks",
+                "recording extracted chunks requires nonempty schema_ver",
+            )
+            .into());
+        }
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut source_ids = Vec::with_capacity(jobs.len());
+        let mut changed_total = 0usize;
+        for (job_id, expected_attempts) in jobs {
+            let sid_str: Option<String> = tx
+                .query_row(
+                    "SELECT source_id FROM extraction_queue WHERE job_id = ?1",
+                    [job_id.as_str()],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let Some(sid_str) = sid_str else {
+                return Err(StoreError::NotFound);
+            };
+            source_ids.push(sid_str);
+            changed_total += tx.execute(
+                "UPDATE extraction_queue
+                 SET status = 'done', lease_until = NULL, last_error = NULL
+                 WHERE job_id = ?1 AND status = 'leased' AND attempts = ?2",
+                params![job_id, expected_attempts],
+            )?;
+        }
+        if changed_total != jobs.len() {
+            return Err(StoreError::Conflict);
+        }
+        for (hash, actor) in chunk_hashes {
+            tx.execute(
+                "INSERT INTO extracted_chunks (chunk_sha256, author_actor, schema_ver, extracted_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(chunk_sha256, author_actor, schema_ver) DO NOTHING",
+                params![hash.as_str(), actor.as_str(), schema_ver.trim(), at.0],
+            )?;
+        }
+        let mut seen = BTreeSet::new();
+        for sid_str in source_ids {
+            if seen.insert(sid_str.clone()) {
+                let sid: SourceId = sid_str.parse()?;
+                let _ = complete_session_source_span_tx(&tx, &sid)?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Transitions still-leased jobs in `jobs` to `paused_quota`.
+    pub fn pause_extraction_window_quota_fenced(
+        &mut self,
+        jobs: &[(String, u32)],
+        reason: &str,
+    ) -> Result<usize> {
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut paused = 0usize;
+        for (job_id, expected_attempts) in jobs {
+            paused += tx.execute(
+                "UPDATE extraction_queue
+                 SET status = 'paused_quota', lease_until = NULL, last_error = ?1
+                 WHERE job_id = ?2 AND status = 'leased' AND attempts = ?3",
+                params![reason, job_id, expected_attempts],
+            )?;
+        }
+        tx.commit()?;
+        Ok(paused)
+    }
+
+    /// Releases still-leased jobs in `jobs` for transient retry (or `failed_permanent` at `max_attempts`).
+    pub fn release_extraction_window_for_retry(
+        &mut self,
+        jobs: &[(String, u32)],
+        error: &str,
+        retry_after: EpochMs,
+        max_attempts: u32,
+    ) -> Result<()> {
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        for (job_id, expected_attempts) in jobs {
+            if *expected_attempts < max_attempts {
                 tx.execute(
-                    "INSERT INTO extracted_chunks (chunk_sha256, author_actor, schema_ver, extracted_at)
-                     VALUES (?1, ?2, ?3, ?4)
-                     ON CONFLICT(chunk_sha256, author_actor, schema_ver) DO NOTHING",
-                    params![hash.as_str(), actor.as_str(), schema_ver.trim(), at.0],
+                    "UPDATE extraction_queue
+                     SET status = 'leased', lease_until = ?1, last_error = ?2
+                     WHERE job_id = ?3 AND status = 'leased' AND attempts = ?4",
+                    params![retry_after.0, error, job_id, expected_attempts],
+                )?;
+            } else {
+                tx.execute(
+                    "UPDATE extraction_queue
+                     SET status = 'failed_permanent', lease_until = NULL, last_error = ?1
+                     WHERE job_id = ?2 AND status = 'leased' AND attempts = ?3",
+                    params![error, job_id, expected_attempts],
                 )?;
             }
         }
-        let source_id: SourceId = source_id_str.parse()?;
-        let _ = complete_session_source_span_tx(&tx, &source_id)?;
         tx.commit()?;
-        post_commit_staged_extraction_effects(self, batch)?;
         Ok(())
     }
 
@@ -833,7 +1279,7 @@ impl Store {
             .query_row(
                 "SELECT job_id, source_id, chunk_ids_json, chunk_batch_sha256, author_actor,
                         model_policy, priority, reference_time, status, lease_until, attempts,
-                        last_error, created_at
+                        last_error, created_at, thread_key, reply_to_key
                  FROM extraction_queue
                  WHERE job_id = ?1",
                 [job_id],
@@ -1057,6 +1503,8 @@ pub(crate) fn enqueue_or_rearm_extraction_job_tx(
     tx: &rusqlite::Connection,
     source_id: &SourceId,
     input: &ExtractionJobInput,
+    thread_key: Option<&str>,
+    reply_to_key: Option<&str>,
 ) -> Result<ExtractionJob> {
     if input.chunk_ids.is_empty() || input.chunk_ids.iter().any(|c| c.trim().is_empty()) {
         return Err(KpError::invalid(
@@ -1073,11 +1521,13 @@ pub(crate) fn enqueue_or_rearm_extraction_job_tx(
         )
         .into());
     }
+    let clean_thread = thread_key.map(str::trim).filter(|s| !s.is_empty());
+    let clean_reply = reply_to_key.map(str::trim).filter(|s| !s.is_empty());
     let existing: Option<ExtractionJob> = tx
         .query_row(
             "SELECT job_id, source_id, chunk_ids_json, chunk_batch_sha256, author_actor,
                     model_policy, priority, reference_time, status, lease_until, attempts,
-                    last_error, created_at
+                    last_error, created_at, thread_key, reply_to_key
              FROM extraction_queue
              WHERE source_id = ?1
                AND chunk_batch_sha256 = ?2
@@ -1100,9 +1550,11 @@ pub(crate) fn enqueue_or_rearm_extraction_job_tx(
             tx.execute(
                 "UPDATE extraction_queue
                  SET status = 'pending', lease_until = NULL, attempts = 0, last_error = NULL,
-                     priority = ?1
-                 WHERE job_id = ?2",
-                params![input.priority, &job.job_id],
+                     priority = ?1,
+                     thread_key = COALESCE(thread_key, ?2),
+                     reply_to_key = COALESCE(reply_to_key, ?3)
+                 WHERE job_id = ?4",
+                params![input.priority, clean_thread, clean_reply, &job.job_id],
             )?;
             job.status = ExtractionJobStatus::Pending;
             job.lease_until = None;
@@ -1121,8 +1573,9 @@ pub(crate) fn enqueue_or_rearm_extraction_job_tx(
     tx.execute(
         "INSERT INTO extraction_queue
             (job_id, source_id, chunk_ids_json, chunk_batch_sha256, author_actor, model_policy,
-             priority, reference_time, status, lease_until, attempts, last_error, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', NULL, 0, NULL, ?9)",
+             priority, reference_time, status, lease_until, attempts, last_error, created_at,
+             thread_key, reply_to_key)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', NULL, 0, NULL, ?9, ?10, ?11)",
         params![
             &job_id,
             source_id.as_str(),
@@ -1133,6 +1586,8 @@ pub(crate) fn enqueue_or_rearm_extraction_job_tx(
             input.priority,
             input.reference_time.0,
             input.created_at.0,
+            clean_thread,
+            clean_reply,
         ],
     )?;
     Ok(ExtractionJob {
@@ -1149,7 +1604,333 @@ pub(crate) fn enqueue_or_rearm_extraction_job_tx(
         attempts: 0,
         last_error: None,
         created_at: input.created_at,
+        thread_key: clean_thread.map(str::to_owned),
+        reply_to_key: clean_reply.map(str::to_owned),
     })
+}
+
+#[derive(Clone)]
+struct WindowSourceMeta {
+    readable_by: AudienceSpec,
+    source_scope_id: Option<SourceScopeId>,
+    ingested_by: Option<ActorId>,
+    uri: String,
+    external_source_key: Option<String>,
+    superseded_by_source: Option<String>,
+}
+
+struct LoadedChunkRow {
+    chunk_id: String,
+    heading: String,
+    body: String,
+    base_anchor: AnchorSpec,
+}
+
+struct ThreadContextEntry {
+    source_id: SourceId,
+    author: ActorId,
+    external_source_key: Option<String>,
+    reply_to_key: Option<String>,
+    chunk: LoadedChunkRow,
+}
+
+struct ThreadContextQuerySpec<'a> {
+    thread_key: &'a str,
+    model_policy: &'a str,
+    earliest_ref: EpochMs,
+    head_meta: &'a WindowSourceMeta,
+    target_source_ids: &'a BTreeSet<String>,
+    target_reply_keys: &'a [String],
+}
+
+fn reconcile_queue_leases_tx(tx: &rusqlite::Connection, now: EpochMs) -> Result<()> {
+    tx.execute(
+        "UPDATE extraction_queue
+         SET status = 'done', lease_until = NULL, last_error = 'cancelled_raw_only'
+         WHERE status IN ('pending', 'leased', 'paused_quota', 'failed_permanent')
+           AND EXISTS (
+               SELECT 1 FROM change_log cl
+               WHERE cl.op = 'raw_only_source' AND cl.target_id = extraction_queue.source_id
+           )",
+        [],
+    )?;
+    tx.execute(
+        "UPDATE extraction_queue
+         SET status = 'pending', lease_until = NULL
+         WHERE status = 'leased' AND lease_until IS NOT NULL AND lease_until <= ?1",
+        [now.0],
+    )?;
+    Ok(())
+}
+
+fn lease_single_job_in_tx(
+    tx: &rusqlite::Connection,
+    job_id: &str,
+    lease_until: EpochMs,
+) -> Result<ExtractionJob> {
+    tx.execute(
+        "UPDATE extraction_queue
+         SET status = 'leased', lease_until = ?1, attempts = attempts + 1
+         WHERE job_id = ?2",
+        params![lease_until.0, job_id],
+    )?;
+    tx.query_row(
+        "SELECT job_id, source_id, chunk_ids_json, chunk_batch_sha256, author_actor,
+                model_policy, priority, reference_time, status, lease_until, attempts,
+                last_error, created_at, thread_key, reply_to_key
+         FROM extraction_queue
+         WHERE job_id = ?1",
+        [job_id],
+        read_job_row,
+    )?
+}
+
+struct RawWindowSourceRow {
+    aud_json: String,
+    scope_opt: Option<String>,
+    ing_opt: Option<String>,
+    uri: String,
+    ext_key: Option<String>,
+    sup_opt: Option<String>,
+}
+
+fn load_window_source_meta_tx(
+    tx: &rusqlite::Connection,
+    source_id: &SourceId,
+) -> Result<Option<WindowSourceMeta>> {
+    let row: Option<RawWindowSourceRow> = tx
+        .query_row(
+            "SELECT COALESCE(
+                (SELECT c.readable_by_json FROM chunks c WHERE c.source_id = s.source_id ORDER BY c.ordinal ASC LIMIT 1),
+                s.visibility_scope
+             ), s.source_scope_id, s.ingested_by_actor, s.uri, s.external_source_key, s.superseded_by_source
+             FROM raw_sources s
+             WHERE s.source_id = ?1",
+            [source_id.as_str()],
+            |r| {
+                Ok(RawWindowSourceRow {
+                    aud_json: r.get(0)?,
+                    scope_opt: r.get(1)?,
+                    ing_opt: r.get(2)?,
+                    uri: r.get(3)?,
+                    ext_key: r.get(4)?,
+                    sup_opt: r.get(5)?,
+                })
+            },
+        )
+        .optional()?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    Ok(Some(WindowSourceMeta {
+        readable_by: serde_json::from_str(&row.aud_json)?,
+        source_scope_id: row
+            .scope_opt
+            .map(|s| s.parse::<SourceScopeId>())
+            .transpose()?,
+        ingested_by: row.ing_opt.map(|s| s.parse::<ActorId>()).transpose()?,
+        uri: row.uri,
+        external_source_key: row.ext_key,
+        superseded_by_source: row.sup_opt,
+    }))
+}
+
+fn load_job_chunks_tx(
+    tx: &rusqlite::Connection,
+    source_id: &SourceId,
+    chunk_ids: &[String],
+) -> Result<Vec<LoadedChunkRow>> {
+    if chunk_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut stmt = tx.prepare(
+        "SELECT chunk_id, heading, body, anchor_json
+         FROM chunks
+         WHERE source_id = ?1 AND chunk_id = ?2",
+    )?;
+    let mut out = Vec::with_capacity(chunk_ids.len());
+    for cid in chunk_ids {
+        if let Some((chunk_id, heading, body, anchor_raw)) = stmt
+            .query_row(params![source_id.as_str(), cid.as_str()], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            })
+            .optional()?
+        {
+            out.push(LoadedChunkRow {
+                chunk_id,
+                heading,
+                body,
+                base_anchor: serde_json::from_str(&anchor_raw)?,
+            });
+        }
+    }
+    Ok(out)
+}
+
+fn estimate_chunks_tokens(chunks: &[LoadedChunkRow]) -> usize {
+    chunks
+        .iter()
+        .map(|c| {
+            estimate_batch_tokens(&c.heading)
+                .saturating_add(estimate_batch_tokens(&c.body))
+                .saturating_add(4)
+                .max(1)
+        })
+        .sum::<usize>()
+        .max(1)
+}
+
+fn uri_is_http(uri: &str) -> bool {
+    let trimmed = uri.trim();
+    trimmed
+        .get(..7)
+        .is_some_and(|p| p.eq_ignore_ascii_case("http://"))
+        || trimmed
+            .get(..8)
+            .is_some_and(|p| p.eq_ignore_ascii_case("https://"))
+}
+
+fn register_ext_key_mapping(map: &mut BTreeMap<String, String>, ext_key: &str, chunk_id: &str) {
+    map.insert(ext_key.to_owned(), chunk_id.to_owned());
+    if let Some((base, _)) = ext_key.rsplit_once("@rev") {
+        map.entry(base.to_owned())
+            .or_insert_with(|| chunk_id.to_owned());
+    }
+}
+
+fn load_thread_context_entries_tx(
+    tx: &rusqlite::Connection,
+    spec: &ThreadContextQuerySpec<'_>,
+) -> Result<Vec<ThreadContextEntry>> {
+    const MAX_CONTEXT_CHUNKS: usize = 5;
+    let mut stmt = tx.prepare(
+        "SELECT job_id, source_id, chunk_ids_json, chunk_batch_sha256, author_actor,
+                model_policy, priority, reference_time, status, lease_until, attempts,
+                last_error, created_at, thread_key, reply_to_key
+         FROM extraction_queue
+         WHERE status = 'done'
+           AND thread_key = ?1
+           AND model_policy = ?2
+           AND reference_time <= ?3
+           AND last_error IS NULL
+         ORDER BY reference_time DESC, created_at DESC, job_id DESC
+         LIMIT 20",
+    )?;
+    let prior_jobs: Vec<ExtractionJob> = stmt
+        .query_map(
+            params![spec.thread_key, spec.model_policy, spec.earliest_ref.0],
+            read_job_row,
+        )?
+        .map(|r| r?)
+        .collect::<Result<Vec<_>>>()?;
+
+    let mut seen_sources = spec.target_source_ids.clone();
+    let mut collected_rev = Vec::new();
+    for pjob in prior_jobs {
+        if collected_rev.len() >= MAX_CONTEXT_CHUNKS {
+            break;
+        }
+        if !seen_sources.insert(pjob.source_id.as_str().to_owned()) {
+            continue;
+        }
+        if crate::facts::is_source_marked_raw_only(tx, pjob.source_id.as_str())? {
+            continue;
+        }
+        let Some(pmeta) = load_window_source_meta_tx(tx, &pjob.source_id)? else {
+            continue;
+        };
+        if pmeta.superseded_by_source.is_some()
+            || pmeta.source_scope_id != spec.head_meta.source_scope_id
+            || pmeta.readable_by != spec.head_meta.readable_by
+            || pmeta.ingested_by != spec.head_meta.ingested_by
+        {
+            continue;
+        }
+        let pchunks = load_job_chunks_tx(tx, &pjob.source_id, &pjob.chunk_ids)?;
+        if pchunks.iter().any(|c| has_tagged_turns(&c.body)) {
+            continue;
+        }
+        for chunk in pchunks.into_iter().rev() {
+            if collected_rev.len() >= MAX_CONTEXT_CHUNKS {
+                break;
+            }
+            collected_rev.push(ThreadContextEntry {
+                source_id: pjob.source_id.clone(),
+                author: pjob.author.clone(),
+                external_source_key: pmeta.external_source_key.clone(),
+                reply_to_key: pjob.reply_to_key.clone(),
+                chunk,
+            });
+        }
+    }
+    collected_rev.reverse();
+
+    for rk in spec.target_reply_keys {
+        let already_present = collected_rev.iter().any(|e| {
+            e.external_source_key.as_deref().is_some_and(|ek| {
+                ek == rk || ek.strip_prefix(rk).is_some_and(|s| s.starts_with("@rev"))
+            })
+        });
+        if already_present {
+            continue;
+        }
+        let rev_pattern = format!("{rk}@rev%");
+        let parent_job: Option<ExtractionJob> = tx
+            .query_row(
+                "SELECT q.job_id, q.source_id, q.chunk_ids_json, q.chunk_batch_sha256, q.author_actor,
+                        q.model_policy, q.priority, q.reference_time, q.status, q.lease_until, q.attempts,
+                        q.last_error, q.created_at, q.thread_key, q.reply_to_key
+                 FROM extraction_queue q
+                 JOIN raw_sources s ON s.source_id = q.source_id
+                 WHERE s.superseded_by_source IS NULL
+                   AND (s.external_source_key = ?1 OR s.external_source_key LIKE ?2)
+                   AND q.model_policy = ?3
+                 ORDER BY q.reference_time DESC, q.created_at DESC
+                 LIMIT 1",
+                params![rk, rev_pattern, spec.model_policy],
+                read_job_row,
+            )
+            .optional()?
+            .transpose()?;
+        if let Some(pjob) = parent_job {
+            if !seen_sources.insert(pjob.source_id.as_str().to_owned()) {
+                continue;
+            }
+            if crate::facts::is_source_marked_raw_only(tx, pjob.source_id.as_str())? {
+                continue;
+            }
+            if let Some(pmeta) = load_window_source_meta_tx(tx, &pjob.source_id)? {
+                if pmeta.superseded_by_source.is_none()
+                    && pmeta.source_scope_id == spec.head_meta.source_scope_id
+                    && pmeta.readable_by == spec.head_meta.readable_by
+                    && pmeta.ingested_by == spec.head_meta.ingested_by
+                {
+                    let pchunks = load_job_chunks_tx(tx, &pjob.source_id, &pjob.chunk_ids)?;
+                    if !pchunks.iter().any(|c| has_tagged_turns(&c.body)) {
+                        if let Some(first_chunk) = pchunks.into_iter().next() {
+                            collected_rev.insert(
+                                0,
+                                ThreadContextEntry {
+                                    source_id: pjob.source_id,
+                                    author: pjob.author,
+                                    external_source_key: pmeta.external_source_key,
+                                    reply_to_key: pjob.reply_to_key,
+                                    chunk: first_chunk,
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(collected_rev)
 }
 
 pub(crate) fn complete_session_source_span_tx(
@@ -1310,6 +2091,8 @@ fn read_job_row(row: &Row<'_>) -> rusqlite::Result<Result<ExtractionJob>> {
     let attempts: u32 = row.get(10)?;
     let last_error: Option<String> = row.get(11)?;
     let created_at: i64 = row.get(12)?;
+    let thread_key: Option<String> = row.get(13)?;
+    let reply_to_key: Option<String> = row.get(14)?;
     Ok((|| {
         Ok(ExtractionJob {
             job_id,
@@ -1325,6 +2108,8 @@ fn read_job_row(row: &Row<'_>) -> rusqlite::Result<Result<ExtractionJob>> {
             attempts,
             last_error,
             created_at: EpochMs(created_at),
+            thread_key,
+            reply_to_key,
         })
     })())
 }

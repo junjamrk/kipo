@@ -258,6 +258,8 @@ fn record_explicit_note(
         ingested_by: Some(actor.clone()),
         media_type: Some("text/markdown".into()),
         model_policy: None,
+        thread_key: None,
+        reply_to: None,
     };
     record.validate()?;
     let outcome = store.apply_public_ingest_record(&record, actor, &global_policy)?;

@@ -171,8 +171,21 @@ pub(crate) fn migrate_v1_to_v2(db: &mut Connection, library_path: &Path) -> Resu
             [],
         )?;
     }
+    if !has_column(&tx, "extraction_queue", "thread_key")? {
+        tx.execute(
+            "ALTER TABLE extraction_queue ADD COLUMN thread_key TEXT",
+            [],
+        )?;
+    }
+    if !has_column(&tx, "extraction_queue", "reply_to_key")? {
+        tx.execute(
+            "ALTER TABLE extraction_queue ADD COLUMN reply_to_key TEXT",
+            [],
+        )?;
+    }
     tx.execute_batch(
         "CREATE INDEX IF NOT EXISTS raw_sources_ext_key ON raw_sources(external_source_key) WHERE external_source_key IS NOT NULL;
+         CREATE INDEX IF NOT EXISTS extraction_queue_thread ON extraction_queue(thread_key, reference_time ASC, created_at ASC) WHERE thread_key IS NOT NULL;
          DROP TABLE IF EXISTS connector_cursors;",
     )?;
 
@@ -300,4 +313,35 @@ pub(crate) fn finalize_legacy_raw_dir(db: &mut Connection, library_path: &Path) 
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(err) => Err(StoreError::Io(err)),
     }
+}
+
+pub(crate) fn ensure_v2_queue_columns(db: &mut Connection) -> Result<()> {
+    let has_thread = has_column(db, "extraction_queue", "thread_key")?;
+    let has_reply = has_column(db, "extraction_queue", "reply_to_key")?;
+    if has_thread && has_reply {
+        return Ok(());
+    }
+    let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    if !has_column(&tx, "extraction_queue", "thread_key")? {
+        tx.execute(
+            "ALTER TABLE extraction_queue ADD COLUMN thread_key TEXT",
+            [],
+        )?;
+    }
+    if !has_column(&tx, "extraction_queue", "reply_to_key")? {
+        tx.execute(
+            "ALTER TABLE extraction_queue ADD COLUMN reply_to_key TEXT",
+            [],
+        )?;
+    }
+    tx.execute_batch(
+        "CREATE INDEX IF NOT EXISTS extraction_queue_thread ON extraction_queue(thread_key, reference_time ASC, created_at ASC) WHERE thread_key IS NOT NULL;",
+    )?;
+    let new_hash = schema_ir_hash()?;
+    tx.execute(
+        "UPDATE library_meta SET schema_ir_hash = ?1",
+        [new_hash.as_str()],
+    )?;
+    tx.commit()?;
+    Ok(())
 }

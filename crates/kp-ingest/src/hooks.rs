@@ -1211,6 +1211,8 @@ pub fn session_subbatch_to_public_ingest_record(
         ingested_by: Some(actor.clone()),
         media_type: Some("text/markdown".to_owned()),
         model_policy: None,
+        thread_key: None,
+        reply_to: None,
     };
     record.validate()?;
     Ok(record)

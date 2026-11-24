@@ -538,3 +538,5 @@ mod m1_nl_governance;
 mod m1_semiring_gates;
 #[path = "derivation/regressions.rs"]
 mod regressions;
+#[path = "derivation/wave2a_core_chat.rs"]
+mod wave2a_core_chat;

@@ -200,6 +200,10 @@ pub struct IngestedSourceEvent {
     pub event_op: SourceEventOp,
     pub occurred_at: EpochMs,
     pub model_policy: ModelRoutePolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
 }
 
 impl IngestedSourceEvent {
@@ -393,6 +397,8 @@ mod tests {
             event_op: SourceEventOp::Upsert,
             occurred_at: EpochMs(1_795_000_000_000),
             model_policy: ConnectorKind::Feishu.default_model_policy(),
+            thread_key: None,
+            reply_to: None,
         };
         let meta = event.into_origin_meta(pm.clone());
         assert_eq!(meta.speaker, pm);

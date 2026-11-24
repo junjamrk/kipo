@@ -405,6 +405,11 @@ async fn automated_two_person_community_join_keeps_personal_events_private_and_a
                 chunk_id: format!("{}-0", a_src.source_id),
                 heading: String::new(),
                 body: a_body.into(),
+                source_id: a_src.source_id.clone(),
+                author: "alice".parse()?,
+                base_anchor: Default::default(),
+                role: Default::default(),
+                reply_to_chunk_id: None,
             }],
             10,
         )?;
@@ -437,6 +442,7 @@ async fn automated_two_person_community_join_keeps_personal_events_private_and_a
                 scope: None,
                 ambiguous_scope: None,
                 assumed_premise_ids: Vec::new(),
+                evidence: None,
             }],
             &NlFunnelOptions {
                 audience: AudienceSpec::Explicit(BTreeSet::from(["alice".parse()?])),
@@ -480,6 +486,11 @@ async fn automated_two_person_community_join_keeps_personal_events_private_and_a
                 chunk_id: format!("{}-0", b_src.source_id),
                 heading: String::new(),
                 body: b_body.into(),
+                source_id: b_src.source_id.clone(),
+                author: "bob".parse()?,
+                base_anchor: Default::default(),
+                role: Default::default(),
+                reply_to_chunk_id: None,
             }],
             10,
         )?;
@@ -513,6 +524,7 @@ async fn automated_two_person_community_join_keeps_personal_events_private_and_a
                     scope: None,
                     ambiguous_scope: None,
                     assumed_premise_ids: Vec::new(),
+                    evidence: None,
                 },
                 ModelExtractedAtom {
                     speaker: None,
@@ -555,6 +567,7 @@ async fn automated_two_person_community_join_keeps_personal_events_private_and_a
                         question: "该维护窗口禁令是否对整个发布值班组生效？".into(),
                     }),
                     assumed_premise_ids: Vec::new(),
+                    evidence: None,
                 },
             ],
             &NlFunnelOptions {

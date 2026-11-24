@@ -55,6 +55,11 @@ fn deterministic_mock_llm_defaults_to_unrelated_and_skipped_empty() -> Result<()
         speaker_own_facts_by_actor: Default::default(),
         chunks: vec![ExtractionChunkSlice {
             chunk_id: "c0".into(),
+            source_id: "src_1".parse()?,
+            author: "alice".parse()?,
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
             heading: String::new(),
             body: "好的".into(),
         }],
@@ -99,6 +104,11 @@ fn narrow_model_boundary_rejects_unapproved_concepts_premises_and_foreign_update
         speaker_own_facts_by_actor: Default::default(),
         chunks: vec![ExtractionChunkSlice {
             chunk_id: "c1".into(),
+            source_id: "src_b".parse()?,
+            author: "bob".parse()?,
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
             heading: String::new(),
             body: "我们读书会每次活动都不迟到。".into(),
         }],
@@ -139,6 +149,7 @@ fn narrow_model_boundary_rejects_unapproved_concepts_premises_and_foreign_update
             turn_ordinal: None,
             approx_char_offset: None,
         },
+        evidence: None,
         write_op: ModelWriteOp::SupersedeOwn {
             target_fact_id: "bob_old_rule".parse()?,
         },
@@ -191,6 +202,11 @@ fn tagged_request(body: String) -> Result<ExtractionBatchRequest> {
         )]),
         chunks: vec![ExtractionChunkSlice {
             chunk_id: "t0".into(),
+            source_id: "src_team".parse()?,
+            author: "dave".parse()?,
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
             heading: "team chat".into(),
             body,
         }],
@@ -219,6 +235,7 @@ fn quote_atom(quote: &str, speaker: Option<&str>) -> Result<ModelExtractedAtom> 
             turn_ordinal: None,
             approx_char_offset: None,
         },
+        evidence: None,
         write_op: ModelWriteOp::Add,
     })
 }

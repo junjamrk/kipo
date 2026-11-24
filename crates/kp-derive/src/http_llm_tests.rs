@@ -71,6 +71,11 @@ fn sample_batch_request(body: &str) -> Result<ExtractionBatchRequest> {
             chunk_id: "c0".into(),
             heading: "note".into(),
             body: body.into(),
+            source_id: "src_http_test".parse()?,
+            author: "alice".parse()?,
+            base_anchor: Default::default(),
+            role: Default::default(),
+            reply_to_chunk_id: None,
         }],
         min_rate_limit_remaining_pct: 5,
     })
@@ -114,6 +119,7 @@ fn valid_wire_envelope_json(chunk_id: &str, quote: &str) -> Value {
                     "turn_ordinal": null,
                     "approx_char_offset": null
                 },
+                "evidence": null,
                 "write_op": {
                     "op": "add",
                     "target_fact_id": null

@@ -62,12 +62,13 @@ pub use providers::{
     DEFAULT_LOCAL_EMBEDDING_MODEL, EMBEDDING_RECIPES,
 };
 pub use public_ingest::{
-    decode_queue_model_policy, PublicIngestStreamReport, PublicRecordAppliedKind,
-    PublicRecordApplyOutcome, PublicSessionSubbatchSpec,
+    decode_queue_model_policy, GovernedSourceInput, GovernedSourceOutcome, GovernedUpsertMode,
+    PublicIngestStreamReport, PublicRecordAppliedKind, PublicRecordApplyOutcome,
+    PublicSessionSubbatchSpec,
 };
 pub use queue::{
-    ExtractionJob, ExtractionJobInput, ExtractionJobStatus, FencedJobCommitSpec, SessionCursor,
-    StagedAtomWrite, StagedExtractionBatch,
+    ExtractionJob, ExtractionJobInput, ExtractionJobStatus, FencedJobCommitSpec,
+    LeasedExtractionWindow, SessionCursor, StagedAtomWrite, StagedExtractionBatch,
 };
 pub use reembed::ReembedReport;
 pub use rsi::{AppliedEpisode, FeedbackResult};

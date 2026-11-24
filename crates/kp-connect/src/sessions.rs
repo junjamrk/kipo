@@ -851,6 +851,8 @@ impl Connector for AgentSessionConnector {
                         event_op,
                         occurred_at,
                         model_policy: scope.model_policy.clone(),
+                        thread_key: None,
+                        reply_to: None,
                     });
                 }
 

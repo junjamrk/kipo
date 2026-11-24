@@ -1,12 +1,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use kp_model::{
-    format_opaque_id, is_bare_content_hash, verify_verbatim_quote, ActorId, AudienceSpec, CharSpan,
-    CommunityConcept, ConceptId, ConceptKind, ConceptPolarity, ContentHash, DerivationView,
-    EpochMs, Fact, FactAccess, FactId, FactKind, FactStatus, GovernedScope, JustificationId,
-    KpError, MemberRole, MembershipRelation, QuoteLocationHint, RejectionEvidenceKey, RejectionId,
-    RejectionRecord, RejectionSemanticKey, ReviewId, ReviewItem, ReviewKind, ReviewStatus,
-    SourceId, SourceScopeId,
+    format_opaque_id, is_bare_content_hash, verify_verbatim_quote, ActorId, AnchorSpec,
+    AudienceSpec, CharSpan, CommunityConcept, ConceptId, ConceptKind, ConceptPolarity, ContentHash,
+    DerivationView, EpochMs, Fact, FactAccess, FactId, FactKind, FactStatus, GovernedScope,
+    JustificationId, KpError, MemberRole, MembershipRelation, QuoteLocationHint,
+    RejectionEvidenceKey, RejectionId, RejectionRecord, RejectionSemanticKey, ReviewId, ReviewItem,
+    ReviewKind, ReviewStatus, SourceId, SourceScopeId,
 };
 use rusqlite::{params, Connection, OptionalExtension, Row, TransactionBehavior};
 use serde::{Deserialize, Serialize};
@@ -107,13 +107,14 @@ pub struct GuardAllowGrant {
     pub expires_at: EpochMs,
 }
 
-/// Source visibility, scope, URI, and ordered `(chunk_id, heading, body)` slices for queued extraction.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Source visibility, scope, URI, media type, and ordered `(chunk_id, heading, body, base_anchor)` slices for queued extraction.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ExtractionSourceContext {
     pub readable_by: AudienceSpec,
     pub source_scope_id: Option<SourceScopeId>,
     pub uri: String,
-    pub chunks: Vec<(String, String, String)>,
+    pub media_type: String,
+    pub chunks: Vec<(String, String, String, AnchorSpec)>,
 }
 
 /// Atomic fact & audit updates applied when resolving a governance review item.
@@ -883,26 +884,26 @@ impl Store {
         Ok(items)
     }
 
-    /// Loads `(readable_by, source_scope_id, uri)` and requested `(chunk_id, heading, body)` slices for `source_id`.
+    /// Loads `(readable_by, source_scope_id, uri, media_type)` and requested `(chunk_id, heading, body, base_anchor)` slices scoped strictly to `source_id`.
     pub fn extraction_source_context(
         &self,
         source_id: &SourceId,
         chunk_ids: &[String],
     ) -> Result<Option<ExtractionSourceContext>> {
-        let row: Option<(String, Option<String>, String)> = self
+        let row: Option<(String, Option<String>, String, String)> = self
             .db
             .query_row(
                 "SELECT COALESCE(
                     (SELECT c.readable_by_json FROM chunks c WHERE c.source_id = s.source_id ORDER BY c.ordinal ASC LIMIT 1),
                     s.visibility_scope
-                 ), s.source_scope_id, s.uri
+                 ), s.source_scope_id, s.uri, s.media_type
                  FROM raw_sources s
                  WHERE s.source_id = ?1",
                 [source_id.as_str()],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()?;
-        let Some((aud_json, scope_opt, uri)) = row else {
+        let Some((aud_json, scope_opt, uri, media_type)) = row else {
             return Ok(None);
         };
         let readable_by: AudienceSpec = serde_json::from_str(&aud_json)?;
@@ -910,21 +911,25 @@ impl Store {
 
         let mut chunks = Vec::with_capacity(chunk_ids.len());
         if !chunk_ids.is_empty() {
-            let mut stmt = self
-                .db
-                .prepare("SELECT chunk_id, heading, body FROM chunks WHERE chunk_id = ?1")?;
+            let mut stmt = self.db.prepare(
+                "SELECT chunk_id, heading, body, anchor_json
+                 FROM chunks
+                 WHERE source_id = ?1 AND chunk_id = ?2",
+            )?;
             for cid in chunk_ids {
-                if let Some(chunk_row) = stmt
-                    .query_row([cid.as_str()], |r| {
+                if let Some((cid_val, heading, body, anchor_raw)) = stmt
+                    .query_row(params![source_id.as_str(), cid.as_str()], |r| {
                         Ok((
                             r.get::<_, String>(0)?,
                             r.get::<_, String>(1)?,
                             r.get::<_, String>(2)?,
+                            r.get::<_, String>(3)?,
                         ))
                     })
                     .optional()?
                 {
-                    chunks.push(chunk_row);
+                    let base_anchor: AnchorSpec = serde_json::from_str(&anchor_raw)?;
+                    chunks.push((cid_val, heading, body, base_anchor));
                 }
             }
         }
@@ -933,8 +938,21 @@ impl Store {
             readable_by,
             source_scope_id,
             uri,
+            media_type,
             chunks,
         }))
+    }
+
+    /// Returns `raw_sources.media_type` for `source_id` if present.
+    pub fn source_media_type(&self, source_id: &SourceId) -> Result<Option<String>> {
+        Ok(self
+            .db
+            .query_row(
+                "SELECT media_type FROM raw_sources WHERE source_id = ?1",
+                [source_id.as_str()],
+                |r| r.get(0),
+            )
+            .optional()?)
     }
 
     /// Applies post-review fact updates (widening `facts.audience_json`, copying `fact_entities`,

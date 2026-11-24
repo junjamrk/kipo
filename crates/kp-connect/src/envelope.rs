@@ -92,6 +92,8 @@ impl IngestedSourceEvent {
             ingested_by: Some(self.ingested_by.clone()),
             media_type: Some(self.media_type.clone()),
             model_policy,
+            thread_key: self.thread_key.clone(),
+            reply_to: self.reply_to.clone(),
         }
     }
 }
@@ -237,6 +239,8 @@ mod tests {
                 event_op: SourceEventOp::Upsert,
                 occurred_at: EpochMs(1_795_245_000_000),
                 model_policy: ModelRoutePolicy::HostCli,
+                thread_key: Some("chat:oc_cutover".into()),
+                reply_to: None,
             }],
             identity_proposals: Vec::new(),
             next_cursor: ConnectorCursor::default(),

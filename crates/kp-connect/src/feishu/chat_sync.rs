@@ -8,8 +8,8 @@ use super::parsers::{
 };
 use super::{FeishuCheckpoint, FeishuConnector, FeishuMessageState};
 use crate::{
-    is_low_signal_ack, ConnectError, ConnectorScope, ExternalIdentityProposal, FeishuTransport,
-    IngestedSourceEvent, PollBatch, Result, SourceEventOp, SourceScopeRoster,
+    ConnectError, ConnectorScope, ExternalIdentityProposal, FeishuTransport, IngestedSourceEvent,
+    PollBatch, Result, SourceEventOp, SourceScopeRoster,
 };
 
 struct ChatSyncCtx<'a> {
@@ -329,6 +329,33 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                 .max(occurred_at.0),
         );
 
+        let thread_key = msg
+            .get("thread_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+            .or_else(|| {
+                msg.get("root_id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| format!("chat:{chat_id}"));
+        let reply_to = msg
+            .get("parent_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|parent_id| {
+                checkpoint
+                    .known_messages
+                    .get(parent_id)
+                    .map(|s| s.active_key.clone())
+                    .unwrap_or_else(|| parent_id.to_owned())
+            });
+
         let deleted = msg.get("deleted").and_then(Value::as_bool).unwrap_or(false);
         let updated = msg.get("updated").and_then(Value::as_bool).unwrap_or(false);
 
@@ -358,6 +385,8 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                 event_op: SourceEventOp::Withdraw,
                 occurred_at,
                 model_policy: scope.model_policy.clone(),
+                thread_key: Some(thread_key),
+                reply_to,
             });
             checkpoint.known_messages.insert(
                 message_id.to_owned(),
@@ -374,7 +403,37 @@ impl<T: FeishuTransport> FeishuConnector<T> {
 
         let raw_content = extract_message_text(msg);
         let clean_content = redactor.redact(raw_content.trim());
-        if is_low_signal_ack(&clean_content) {
+        if clean_content.trim().is_empty() {
+            if let Some(prev) = checkpoint.known_messages.get(message_id).cloned() {
+                if !prev.withdrawn {
+                    batch.events.push(IngestedSourceEvent {
+                        external_key: prev.active_key.clone(),
+                        uri: format!("feishu://chat/{chat_id}/{message_id}"),
+                        media_type: "text/plain".into(),
+                        speaker_external_id: speaker_id,
+                        speaker_display_name: speaker_name,
+                        ingested_by: ingested_by.clone(),
+                        source_scope_id: scope.source_scope_id.clone(),
+                        content: String::new(),
+                        event_op: SourceEventOp::Withdraw,
+                        occurred_at,
+                        model_policy: scope.model_policy.clone(),
+                        thread_key: Some(thread_key),
+                        reply_to,
+                    });
+                    checkpoint.known_messages.insert(
+                        message_id.to_owned(),
+                        FeishuMessageState {
+                            active_key: prev.active_key,
+                            content_sha256: String::new(),
+                            update_time_ms: occurred_at.0,
+                            revision: prev.revision,
+                            withdrawn: true,
+                        },
+                    );
+                    return;
+                }
+            }
             batch.skipped_low_signal += 1;
             return;
         }
@@ -408,6 +467,8 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                 event_op,
                 occurred_at,
                 model_policy: scope.model_policy.clone(),
+                thread_key: Some(thread_key),
+                reply_to,
             });
             checkpoint.known_messages.insert(
                 message_id.to_owned(),
@@ -435,6 +496,8 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                 },
                 occurred_at,
                 model_policy: scope.model_policy.clone(),
+                thread_key: Some(thread_key),
+                reply_to,
             });
             checkpoint.known_messages.insert(
                 message_id.to_owned(),
@@ -459,6 +522,8 @@ impl<T: FeishuTransport> FeishuConnector<T> {
                 event_op: SourceEventOp::Upsert,
                 occurred_at,
                 model_policy: scope.model_policy.clone(),
+                thread_key: Some(thread_key),
+                reply_to,
             });
             checkpoint.known_messages.insert(
                 message_id.to_owned(),
