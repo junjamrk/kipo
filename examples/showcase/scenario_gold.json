@@ -1,0 +1,172 @@
+{
+  "schema_version": 1,
+  "case_id": "nextjs-42991",
+  "purpose": "Evaluation only; never ingest these questions, answers or source-ID labels as scenario evidence.",
+  "judging_policy": "required_source_ids identify evidence needed for the expected answer, not substring answers. A retrieval-only run must report source recall separately from answer correctness and abstention. Human acceptance or an explicitly configured judge is required for semantic answer scores.",
+  "questions": [
+    {
+      "id": "q01-querystring",
+      "after_phase": 2,
+      "query": "Does adding a query string to a Link reliably force a fresh server result on every visit?",
+      "required_source_ids": [
+        "comment-1379506711",
+        "comment-1384554579"
+      ],
+      "answer": "No universal guarantee. Fredkiss3 first reported a promising experiment, then qualified it: same-segment URLs can be cached after initial visits; random values risk hydration issues and stable IDs can still be cached.",
+      "unanswerable": false,
+      "forbidden_claims": [
+        "Every query-string Link always refetches.",
+        "The first experiment is a documented universal guarantee."
+      ]
+    },
+    {
+      "id": "q02-tests",
+      "after_phase": 3,
+      "query": "Did the new unit tests mean the maintainers had decided to keep the disputed navigation behavior permanently?",
+      "required_source_ids": [
+        "comment-1436915646"
+      ],
+      "answer": "No. Tim explained the tests cover existing behavior and help development; the right behavior and mutation interaction were still under discussion.",
+      "unanswerable": false,
+      "forbidden_claims": [
+        "Unit tests ratified the behavior as permanent product policy."
+      ]
+    },
+    {
+      "id": "q03-diagnosis",
+      "after_phase": 3,
+      "query": "Was the session drift in the reviewed reproduction attributed only to the router cache?",
+      "required_source_ids": [
+        "comment-1503064045"
+      ],
+      "answer": "No. Tim identified module-scoped state shared between requests and a session-changing side effect in layout rendering in that reproduction. This does not settle every other stale-data report.",
+      "unanswerable": false,
+      "forbidden_claims": [
+        "All stale-data reports were caused by the same application bug."
+      ]
+    },
+    {
+      "id": "q04-prefetch",
+      "after_phase": 4,
+      "query": "If I turn off Link prefetch, can I assume repeat navigation avoids stale client data across the versions discussed?",
+      "required_source_ids": [
+        "pr-48383",
+        "comment-1549815677"
+      ],
+      "answer": "No. The reply distinguishes the older workaround, including 13.3.1, from newer cache reuse. PR 48383 describes reuse even with prefetch disabled. The behavior is version-specific.",
+      "unanswerable": false,
+      "forbidden_claims": [
+        "prefetch=false always disables the client router cache."
+      ]
+    },
+    {
+      "id": "q05-downgrade",
+      "after_phase": 4,
+      "query": "Who actually tried the proposed older release, and what did they report after trying it?",
+      "required_source_ids": [
+        "comment-1550006970"
+      ],
+      "answer": "grantmagdanz reported that downgrading to 13.3.1 gave their application the desired behavior and accepted slower navigation. That is a local confirmation, not proof for every app.",
+      "unanswerable": false,
+      "forbidden_claims": [
+        "zuinqstudio-admin had already verified the downgrade.",
+        "Every participant validated the downgrade."
+      ]
+    },
+    {
+      "id": "q06-pageTTL",
+      "after_phase": 4,
+      "query": "Can I treat the pageTTL code shown in the discussion as an official configuration API?",
+      "required_source_ids": [
+        "comment-1550016808"
+      ],
+      "answer": "No. Fredkiss3 explicitly identified it as an imagined shape for a possible future option and said the official API could differ.",
+      "unanswerable": false,
+      "forbidden_claims": [
+        "pageTTL is a supported Next.js export in the cited releases.",
+        "The sketch is an approved maintainer API."
+      ]
+    },
+    {
+      "id": "q07-refresh",
+      "after_phase": 4,
+      "query": "What was the proposed custom navigation workaround, and what costs or counterexamples were reported?",
+      "required_source_ids": [
+        "comment-1551488466",
+        "comment-1551533292"
+      ],
+      "answer": "Fredkiss3 proposed push followed by refresh inside startTransition, with server round trips even for static pages. zuinqstudio-admin reported two refreshes/API fetches in their app and only intended to try a downgrade.",
+      "unanswerable": false,
+      "forbidden_claims": [
+        "The custom link has no extra requests.",
+        "The second user confirmed the downgrade had worked."
+      ]
+    },
+    {
+      "id": "q08-outdated",
+      "after_phase": 5,
+      "query": "Should we discard all comments labeled outdated because the maintainers said their technical content was obsolete?",
+      "required_source_ids": [
+        "comment-1673691751"
+      ],
+      "answer": "No. Tim explicitly said the label tracked comments he had read and categorized; it was not a judgment that the content was obsolete.",
+      "unanswerable": false,
+      "forbidden_claims": [
+        "The outdated label is evidence of technical invalidation."
+      ]
+    },
+    {
+      "id": "q09-review",
+      "after_phase": 7,
+      "query": "At the morning update on August 15, was the explanatory write-up already published and approved?",
+      "required_source_ids": [
+        "comment-1678718880"
+      ],
+      "answer": "No. It was close to completion and still needed review by sebmarkbage later that day. The selected snapshot has not yet published it.",
+      "unanswerable": false,
+      "forbidden_claims": [
+        "The morning update contains the published discussion link.",
+        "The write-up was already approved in that update."
+      ]
+    },
+    {
+      "id": "q10-handoff",
+      "after_phase": 8,
+      "query": "Where did the maintainer direct people next, and what did they say that resource was for?",
+      "required_source_ids": [
+        "comment-1679629550"
+      ],
+      "answer": "Tim linked discussion 54075 to explain mutation and routing behavior and gather feedback about the cache interval. He asked readers to study it before replying. This was not a release announcement.",
+      "unanswerable": false,
+      "forbidden_claims": [
+        "The discussion shipped a cache-disabling API."
+      ]
+    },
+    {
+      "id": "q11-close",
+      "after_phase": 9,
+      "query": "Does closing the original issue establish that all affected applications were fixed?",
+      "required_source_ids": [
+        "comment-1680066680",
+        "comment-1679629550"
+      ],
+      "answer": "No. Tim said he would close and lock the issue to move the explanation, questions and continuing resolution to the new discussion.",
+      "unanswerable": false,
+      "forbidden_claims": [
+        "Closure means every report was fixed and verified."
+      ]
+    },
+    {
+      "id": "q12-approved-api",
+      "after_phase": 9,
+      "query": "What exact officially released option did the team ultimately ship to set the router cache lifetime to zero, and in which release?",
+      "required_source_ids": [],
+      "answer": "The selected corpus does not establish an ultimately shipped option or release. It contains a hypothetical API, possible follow-up work, and a later discussion collecting feedback. Abstain from naming an option or release.",
+      "unanswerable": true,
+      "forbidden_claims": [
+        "pageTTL was the shipped option.",
+        "The selected evidence establishes a later release number."
+      ]
+    }
+  ]
+}

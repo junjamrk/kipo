@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "name": "LongMemEval-S cleaned fixed seven-case retrieval smoke test",
+  "dataset_repository": "xiaowu0162/longmemeval-cleaned",
+  "dataset_revision": "98d7416c24c778c2fee6e6f3006e7a073259d48f",
+  "dataset_filename": "longmemeval_s_cleaned.json",
+  "dataset_bytes": 277383467,
+  "dataset_sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+  "dataset_license": "MIT",
+  "dataset_url": "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/98d7416c24c778c2fee6e6f3006e7a073259d48f/longmemeval_s_cleaned.json",
+  "seed": "kipo-showcase-2026-11-25-v1",
+  "selection": "Group abstention separately, sort strata lexicographically, sort each stratum by SHA256(question_id + NUL + seed), then round-robin. The default selects the first seven cases before results are observed.",
+  "smoke_question_ids": [
+    "gpt4_372c3eed_abs",
+    "d7c942c3",
+    "3c1045c8",
+    "e48988bc",
+    "07b6f563",
+    "58bf7951",
+    "gpt4_7abb270c"
+  ],
+  "strata": [
+    "abstention",
+    "knowledge-update",
+    "multi-session",
+    "single-session-assistant",
+    "single-session-preference",
+    "single-session-user",
+    "temporal-reasoning"
+  ],
+  "ingest_fields": ["haystack_dates", "haystack_sessions.role", "haystack_sessions.content"],
+  "never_ingest_fields": ["question", "question_id", "question_type", "answer", "answer_session_ids", "haystack_session_ids", "has_answer"],
+  "protocol": "Full untruncated per-question history, both message roles, native kp chunks, deduplicated session ranking. Raw IDs and gold labels stay in evaluator files. CLI init/add/search only; no direct database writes.",
+  "metrics": ["recall_any@1", "recall_all@1", "recall_any@5", "recall_all@5", "recall_any@10", "recall_all@10", "reciprocal_rank@10"],
+  "abstention": "Run the unanswerable query, record retrieval outputs, exclude it from evidence-recall denominators. Answer abstention has not been evaluated.",
+  "claim_limit": "A seven-case custom retrieval smoke test is not end-to-end accuracy, the official user-only retrieval protocol, a statistically representative estimate, or a leaderboard score. No source dataset is vendored in this directory."
+}
