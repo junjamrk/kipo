@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "items": [
+      {
+        "member_type": "openid",
+        "member_id": "ou_lead_wang",
+        "perm": "full_access",
+        "perm_type": "container",
+        "type": "user",
+        "name": "王五"
+      },
+      {
+        "member_type": "openid",
+        "member_id": "ou_eng_alice",
+        "perm": "edit",
+        "perm_type": "container",
+        "type": "user",
+        "name": "Alice"
+      }
+    ]
+  }
+}

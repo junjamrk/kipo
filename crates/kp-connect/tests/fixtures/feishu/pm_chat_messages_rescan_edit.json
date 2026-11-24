@@ -1,0 +1,36 @@
+{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "messages": [
+      {
+        "message_id": "om_pm_1001",
+        "msg_type": "text",
+        "create_time": "1795138200000",
+        "update_time": "1795150000000",
+        "sender": {
+          "id": "ou_pm_li",
+          "name": "李四"
+        },
+        "content": "下周四凌晨三点数据库主从切换",
+        "deleted": false,
+        "updated": true
+      },
+      {
+        "message_id": "om_pm_1002",
+        "msg_type": "text",
+        "create_time": "1795138260000",
+        "sender": {
+          "id": "ou_eng_alice",
+          "name": "Alice"
+        },
+        "content": "收到！",
+        "deleted": false,
+        "updated": false
+      }
+    ],
+    "total": 2,
+    "has_more": false,
+    "page_token": ""
+  }
+}

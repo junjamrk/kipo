@@ -1,0 +1,23 @@
+{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "messages": [
+      {
+        "message_id": "om_pm_1001",
+        "msg_type": "text",
+        "create_time": "1795138200000",
+        "sender": {
+          "id": "ou_pm_li",
+          "name": "李四"
+        },
+        "content": "This message was recalled",
+        "deleted": true,
+        "updated": false
+      }
+    ],
+    "total": 1,
+    "has_more": false,
+    "page_token": ""
+  }
+}

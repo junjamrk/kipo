@@ -1,0 +1,10 @@
+{
+  "id": 9001,
+  "name": "payments-core",
+  "full_name": "acme/payments-core",
+  "private": true,
+  "visibility": "private",
+  "owner": {
+    "login": "lead-wang"
+  }
+}

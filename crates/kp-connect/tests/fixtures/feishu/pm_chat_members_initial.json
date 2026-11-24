@@ -1,0 +1,29 @@
+{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "items": [
+      {
+        "member_id_type": "open_id",
+        "member_id": "ou_pm_li",
+        "name": "李四",
+        "tenant_key": "736588c9260f175d"
+      },
+      {
+        "member_id_type": "open_id",
+        "member_id": "ou_eng_alice",
+        "name": "Alice",
+        "tenant_key": "736588c9260f175d"
+      },
+      {
+        "member_id_type": "open_id",
+        "member_id": "ou_intern_bob",
+        "name": "Bob",
+        "tenant_key": "736588c9260f175d"
+      }
+    ],
+    "page_token": "",
+    "has_more": false,
+    "member_total": 3
+  }
+}

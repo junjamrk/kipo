@@ -1,0 +1,44 @@
+{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "items": [
+      {
+        "space_id": "7410001",
+        "node_token": "wikcn_runbook",
+        "obj_token": "doxcn_runbook",
+        "obj_type": "docx",
+        "parent_node_token": "",
+        "node_type": "origin",
+        "origin_node_token": "wikcn_runbook",
+        "origin_space_id": "7410001",
+        "has_child": false,
+        "title": "发布值班手册",
+        "obj_create_time": "1795095000",
+        "obj_edit_time": "1795100000",
+        "node_create_time": "1795095000",
+        "creator": "ou_lead_wang",
+        "owner": "ou_lead_wang"
+      },
+      {
+        "space_id": "7410001",
+        "node_token": "wikcn_legacy",
+        "obj_token": "doxcn_legacy",
+        "obj_type": "docx",
+        "parent_node_token": "",
+        "node_type": "origin",
+        "origin_node_token": "wikcn_legacy",
+        "origin_space_id": "7410001",
+        "has_child": false,
+        "title": "旧版发版草稿",
+        "obj_create_time": "1795085000",
+        "obj_edit_time": "1795090000",
+        "node_create_time": "1795085000",
+        "creator": "ou_pm_li",
+        "owner": "ou_pm_li"
+      }
+    ],
+    "page_token": "",
+    "has_more": false
+  }
+}

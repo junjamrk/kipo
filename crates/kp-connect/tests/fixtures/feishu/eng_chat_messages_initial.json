@@ -1,0 +1,24 @@
+{
+  "ok": true,
+  "identity": "user",
+  "data": {
+    "messages": [
+      {
+        "message_id": "om_eng_2000_root",
+        "msg_type": "text",
+        "create_time": "1795141700000",
+        "sender": {
+          "id": "ou_eng_alice",
+          "name": "Alice"
+        },
+        "content": "请问数据库主从切换期间批处理任务怎么安排？",
+        "deleted": false,
+        "updated": false,
+        "thread_id": "omt_eng_cutover_thread"
+      }
+    ],
+    "total": 1,
+    "has_more": false,
+    "page_token": ""
+  }
+}

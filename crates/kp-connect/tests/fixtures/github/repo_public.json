@@ -1,0 +1,10 @@
+{
+  "id": 9002,
+  "name": "open-sdk",
+  "full_name": "acme/open-sdk",
+  "private": false,
+  "visibility": "public",
+  "owner": {
+    "login": "lead-wang"
+  }
+}

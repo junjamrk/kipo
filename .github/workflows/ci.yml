@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  KP_OFFLINE: "1"
+  KP_DISABLE_MODEL_DOWNLOAD: "1"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Validate POSIX installer syntax
+        run: sh -n scripts/install.sh
+
+      - name: Enforce architectural crate boundaries & privacy guards
+        run: |
+          set -eu
+          # 1. Only `kp-store` may depend directly on `rusqlite`.
+          DIRECT_RUSQLITE="$(cargo tree -i rusqlite --depth 1 --all-features --locked | tail -n +2)"
+          echo "$DIRECT_RUSQLITE"
+          if echo "$DIRECT_RUSQLITE" | grep -v 'kp-store ' | grep -q 'kp-'; then
+            echo "error: non-kp-store crate directly depends on rusqlite" >&2
+            exit 1
+          fi
+          # 2. `kp-connect` must remain 100% decoupled from `kp-store` and `rusqlite`.
+          if cargo tree -p kp-connect --all-features --locked | grep -Eq 'kp-store|rusqlite'; then
+            echo "error: kp-connect must not depend on kp-store or rusqlite" >&2
+            exit 1
+          fi
+          # 3. Default minimal `kipo` build must not pull in `kp-connect`.
+          if cargo tree -p kipo --locked | grep -q 'kp-connect'; then
+            echo "error: default kipo feature set must not depend on kp-connect" >&2
+            exit 1
+          fi
+          # 4. Minimal `--no-default-features` build must not pull in `fastembed` or `ort`.
+          if cargo tree -p kipo --no-default-features --locked | grep -Eq 'fastembed|ort '; then
+            echo "error: kipo --no-default-features must not pull in fastembed or ort" >&2
+            exit 1
+          fi
+          # 5. Permanent privacy regression guard: zero literal personal home-directory prefixes.
+          MAC_HOME_PFX="/""Users/"
+          LINUX_HOME_PFX="/""home/"
+          WIN_HOME_BS='[A-Za-z]:\\'"Users"'\\'
+          WIN_HOME_SL='[A-Za-z]:/'"Users"'/'
+          if git grep -n -E "${MAC_HOME_PFX}|${LINUX_HOME_PFX}|${WIN_HOME_BS}|${WIN_HOME_SL}"; then
+            echo "error: literal personal home-directory path prefix detected in repository" >&2
+            exit 1
+          fi
+
+      - name: Check licenses and dependency sources (`cargo-deny`)
+        if: matrix.os == 'ubuntu-latest'
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          arguments: check licenses bans sources
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (`kipo` minimal `--no-default-features`)
+        run: cargo clippy -p kipo --all-targets --no-default-features --locked -- -D warnings
+
+      - name: Clippy (`kipo` default features)
+        run: cargo clippy -p kipo --all-targets --locked -- -D warnings
+
+      - name: Clippy (full workspace `--all-features`)
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      - name: Test full workspace (`--all-features`, 100% offline)
+        run: cargo test --workspace --all-features --locked
+
+  verify-windows:
+    name: Verify Windows (windows-latest)
+    runs-on: windows-latest
+    env:
+      KP_OFFLINE: "1"
+      KP_DISABLE_MODEL_DOWNLOAD: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy (`kp` minimal `--no-default-features` on Windows MSVC)
+        run: cargo clippy -p kipo --bin kp --no-default-features --locked -- -D warnings
+
+      - name: Clippy (`kp` and `kp-connector` release binaries on Windows MSVC)
+        run: cargo clippy --workspace --bins --features connectors --locked -- -D warnings
+
+      - name: Test core crates on Windows MSVC (`--no-default-features --features connectors`)
+        run: cargo test --workspace --lib --bins --no-default-features --features connectors --locked

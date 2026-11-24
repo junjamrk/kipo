@@ -1,0 +1,38 @@
+[package]
+name = "kp-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+
+[dependencies]
+kp-model.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+hex.workspace = true
+hmac.workspace = true
+uuid.workspace = true
+rusqlite.workspace = true
+jieba-rs.workspace = true
+reqwest.workspace = true
+zip = { workspace = true, optional = true }
+tokio.workspace = true
+tempfile.workspace = true
+fastembed = { workspace = true, optional = true }
+ort = { workspace = true, optional = true }
+
+[features]
+default = ["local-embed"]
+local-embed = ["dep:fastembed", "dep:ort", "dep:zip"]
+
+[dev-dependencies]
+axum.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

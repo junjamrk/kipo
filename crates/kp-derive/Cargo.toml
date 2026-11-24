@@ -1,0 +1,30 @@
+[package]
+name = "kp-derive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+publish.workspace = true
+
+[features]
+http-synthesis = []
+
+[dependencies]
+reqwest.workspace = true
+kp-model.workspace = true
+kp-store.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio.workspace = true
+toml_edit.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+axum.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

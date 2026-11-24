@@ -1,0 +1,35 @@
+class Kipo < Formula
+  desc "Local-first personal & team memory infrastructure for AI coding agents"
+  homepage "https://github.com/junjamrk/kipo"
+  version "__VERSION__"
+  license "Apache-2.0"
+
+  on_macos do
+    if Hardware::CPU.arm?
+      url "https://github.com/junjamrk/kipo/releases/download/v__VERSION__/kipo-aarch64-apple-darwin.tar.gz"
+      sha256 "__SHA256_DARWIN_ARM64__"
+    else
+      url "https://github.com/junjamrk/kipo/releases/download/v__VERSION__/kipo-x86_64-apple-darwin.tar.gz"
+      sha256 "__SHA256_DARWIN_X86_64__"
+    end
+  end
+
+  on_linux do
+    if Hardware::CPU.arm?
+      url "https://github.com/junjamrk/kipo/releases/download/v__VERSION__/kipo-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "__SHA256_LINUX_ARM64__"
+    else
+      url "https://github.com/junjamrk/kipo/releases/download/v__VERSION__/kipo-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "__SHA256_LINUX_X86_64__"
+    end
+  end
+
+  def install
+    bin.install "kp"
+    bin.install "kp-connector" if File.exist?("kp-connector")
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/kp --version")
+  end
+end

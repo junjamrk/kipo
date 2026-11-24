@@ -1,0 +1,21 @@
+[
+  {
+    "number": 42,
+    "title": "Enforce idempotency key on retry",
+    "body": "Retries without `Idempotency-Key` caused duplicate charges.",
+    "html_url": "https://github.com/acme/payments-core/pull/42",
+    "pull_request": { "url": "https://api.github.com/repos/acme/payments-core/pulls/42" },
+    "user": { "login": "lead-wang" },
+    "created_at": "2026-11-19T10:00:00Z",
+    "updated_at": "2026-11-19T10:00:00Z"
+  },
+  {
+    "number": 43,
+    "title": "LGTM",
+    "body": "",
+    "html_url": "https://github.com/acme/payments-core/issues/43",
+    "user": { "login": "eng-alice" },
+    "created_at": "2026-11-19T11:00:00Z",
+    "updated_at": "2026-11-19T11:00:00Z"
+  }
+]
