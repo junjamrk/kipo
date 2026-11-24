@@ -1,11 +1,14 @@
 [package]
 name = "kp-connect"
+description = "Decoupled GitHub, Feishu, and session connectors emitting Public Ingest JSONL for Kipo"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 publish.workspace = true
 
 [dependencies]

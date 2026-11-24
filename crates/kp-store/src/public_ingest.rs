@@ -170,6 +170,75 @@ fn stamp_deterministic_fact_anchors(
     }
 }
 
+fn redact_json_strings(value: &mut serde_json::Value, redactor: &SecretRedactor) {
+    match value {
+        serde_json::Value::String(s) => {
+            let scrubbed = redactor.redact(s);
+            if scrubbed != *s {
+                *s = scrubbed;
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                redact_json_strings(item, redactor);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for v in map.values_mut() {
+                redact_json_strings(v, redactor);
+            }
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn redact_source_bytes_and_chunks(
+    uri: &str,
+    bytes: Vec<u8>,
+    mut chunks: Vec<ChunkInput>,
+    redactor: &SecretRedactor,
+) -> (String, Vec<u8>, Vec<ChunkInput>) {
+    let redacted_uri = redactor.redact(uri);
+    let mut any_chunk_redacted = false;
+    for chunk in &mut chunks {
+        let heading = redactor.redact(&chunk.heading);
+        let body = redactor.redact(&chunk.body);
+        if heading != chunk.heading {
+            chunk.heading = heading;
+            any_chunk_redacted = true;
+        }
+        if body != chunk.body {
+            if chunk.anchor.body_hash.is_some() {
+                chunk.anchor.body_hash = Some(ContentHash::digest(&body));
+            }
+            if body.len() != chunk.body.len() {
+                chunk.anchor.start_byte = None;
+                chunk.anchor.end_byte = None;
+            }
+            chunk.body = body;
+            any_chunk_redacted = true;
+        }
+    }
+    let redacted_bytes = match std::str::from_utf8(&bytes) {
+        Ok(text) => {
+            let scrubbed = redactor.redact(text);
+            if scrubbed == text {
+                bytes
+            } else {
+                scrubbed.into_bytes()
+            }
+        }
+        Err(_) if any_chunk_redacted => chunks
+            .iter()
+            .map(|c| c.body.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n")
+            .into_bytes(),
+        Err(_) => bytes,
+    };
+    (redacted_uri, redacted_bytes, chunks)
+}
+
 pub(crate) fn shared_redactor() -> Result<&'static SecretRedactor> {
     static REDACTOR: OnceLock<std::result::Result<SecretRedactor, String>> = OnceLock::new();
     let res = REDACTOR.get_or_init(|| SecretRedactor::new().map_err(|e| e.to_string()));
@@ -1139,6 +1208,15 @@ impl Store {
             reply_to_key,
             captured_at,
         } = input;
+        let redactor = shared_redactor()?;
+        let (uri, bytes, chunks) = redact_source_bytes_and_chunks(&uri, bytes, chunks, redactor);
+        for item in deterministic_facts.iter_mut() {
+            let subj = redactor.redact(&item.fact.subject);
+            if subj != item.fact.subject {
+                item.fact.subject = subj;
+            }
+            redact_json_strings(&mut item.fact.object, redactor);
+        }
         let caller = ingested_by.clone();
         let spk = speaker;
         let (outcome, remembered, _, _) = self.execute_governed_source_write(

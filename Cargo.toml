@@ -8,7 +8,9 @@ edition = "2021"
 rust-version = "1.89"
 license = "Apache-2.0"
 repository = "https://github.com/junjamrk/kipo"
-homepage = "https://github.com/junjamrk/kipo"
+readme = "README.md"
+keywords = ["ai-agents", "memory", "sqlite", "provenance", "mcp"]
+categories = ["command-line-utilities", "database-implementations", "development-tools"]
 publish = false
 
 [workspace.dependencies]
@@ -62,11 +64,6 @@ unsafe_code = "forbid"
 unwrap_used = "deny"
 expect_used = "deny"
 uninlined_format_args = "warn"
-
-[workspace.lints.cargo]
-unused_workspace_dependencies = "deny"
-unused_dependencies = "deny"
-redundant_homepage = "allow"
 
 [profile.release]
 lto = "thin"

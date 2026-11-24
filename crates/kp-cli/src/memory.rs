@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Subcommand, ValueEnum};
 use kp_derive::{FunnelOptions, Memory, RuleExtractor};
 use kp_model::{
-    ActorId, AudienceSpec, EpochMs, FactKind, KpError, LibraryId, LogicalKey, ModelRoutePolicy,
-    ValidityWindow,
+    ActorId, AudienceSpec, EpochMs, FactKind, KpError, LibraryId, LogicalKey, MemberRole,
+    ModelRoutePolicy, ValidityWindow,
 };
 use kp_retrieve::judge::{HttpJudge, JudgeConfig, JudgeTier};
 use kp_retrieve::{merge_federated_results, search, search_shallow, SearchOptions};
@@ -472,8 +472,41 @@ pub async fn run(cli: &Cli, command: &MemoryCommand) -> Result<()> {
             fact_id_or_logical_key,
             at: requested_at,
         } => {
+            let Some(role) = store.member_role(&actor)? else {
+                return Err(StoreError::PermissionDenied.into());
+            };
             let forget_at = requested_at.map(EpochMs).unwrap_or(at);
-            let ids = store.forget(fact_id_or_logical_key, &actor, forget_at)?;
+            let normalized_target = store
+                .resolve_visible_or_raw_fact_id(&actor, forget_at, fact_id_or_logical_key)
+                .map(|id| id.to_string())
+                .unwrap_or_else(|_| fact_id_or_logical_key.trim().to_owned());
+            if !matches!(role, MemberRole::Owner | MemberRole::Maintainer) {
+                let graph = store.derivation_view()?;
+                let visible = graph.evaluate(&actor, forget_at);
+                let lib_id = store.library_id();
+                let targets: Vec<_> = graph
+                    .facts
+                    .values()
+                    .filter(|f| {
+                        f.id.as_str() == normalized_target
+                            || (f.origin_library == *lib_id
+                                && f.logical_key.as_str() == normalized_target)
+                    })
+                    .collect();
+                if targets.is_empty() {
+                    return Err(StoreError::NotFound.into());
+                }
+                if targets
+                    .iter()
+                    .any(|f| f.author != actor && f.ingested_by.as_ref() != Some(&actor))
+                {
+                    if targets.iter().any(|f| visible.facts.contains(&f.id)) {
+                        return Err(StoreError::PermissionDenied.into());
+                    }
+                    return Err(StoreError::NotFound.into());
+                }
+            }
+            let ids = store.forget(&normalized_target, &actor, forget_at)?;
             let _ = kp_derive::derive(&mut store);
             crate::community::notify_or_sync_joined(&cli.path, &mut store, forget_at).await;
             output(
@@ -487,6 +520,12 @@ pub async fn run(cli: &Cli, command: &MemoryCommand) -> Result<()> {
             origin,
             reason,
         } => {
+            let Some(role) = store.member_role(&actor)? else {
+                return Err(StoreError::PermissionDenied.into());
+            };
+            if !matches!(role, MemberRole::Owner | MemberRole::Maintainer) {
+                return Err(StoreError::PermissionDenied.into());
+            }
             let origin = origin.as_ref().unwrap_or(store.library_id()).clone();
             store.purge_target(&origin, logical_key_or_source_id, at, reason)?;
             let _ = kp_derive::derive(&mut store);

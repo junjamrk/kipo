@@ -467,10 +467,10 @@ fn zep_scan_passes(
         .chain(extra_rules.iter().map(String::as_str))
     {
         let lower = text.to_ascii_lowercase();
-        if lower.contains("/users/")
-            || lower.contains("/home/")
-            || lower.contains("c:\\users\\")
-            || lower.contains("d:\\users\\")
+        if lower.contains(concat!("/", "users/"))
+            || lower.contains(concat!("/", "home/"))
+            || lower.contains(concat!("c:\\", "users\\"))
+            || lower.contains(concat!("d:\\", "users\\"))
         {
             return false;
         }

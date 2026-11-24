@@ -236,3 +236,63 @@ fn hidden_sources_do_not_change_visible_search_bytes() -> Result<()> {
     assert_eq!(before, after);
     Ok(())
 }
+
+#[test]
+fn governed_and_raw_source_ingest_scrub_secrets_before_persisting_blobs_and_chunks() -> Result<()> {
+    let (dir, mut store) = library(LibraryMode::Personal)?;
+    let synthetic_token = format!("ghp_{}", "KIPO_SYNTHETIC_SECRET_1234567890");
+    let raw_line = format!("REDACTION PROBE: token {synthetic_token} must never persist.");
+
+    let mut raw_input = source(&["owner"])?;
+    raw_input.content = raw_line.as_bytes().to_vec();
+    raw_input.chunks[0].body = raw_line.clone();
+    let raw_saved =
+        store.ingest_source(&"origin".parse()?, &"raw-secret-doc".parse()?, &raw_input)?;
+    let raw_text = store
+        .raw_source_text(&raw_saved.source_id)?
+        .unwrap_or_default();
+    assert!(!raw_text.contains(&synthetic_token));
+    assert!(raw_text.contains("[REDACTED]"));
+
+    let (gov_out, _) = store.upsert_governed_source_with_facts(
+        crate::GovernedSourceInput {
+            external_source_key: "file://synthetic-private.txt".into(),
+            uri: "synthetic-private.txt".into(),
+            media_type: "text/plain".into(),
+            bytes: raw_line.as_bytes().to_vec(),
+            chunks: vec![crate::ChunkInput {
+                heading: format!("Header {synthetic_token}"),
+                body: raw_line.clone(),
+                anchor: kp_model::AnchorSpec::default(),
+            }],
+            speaker: "owner".parse()?,
+            ingested_by: "owner".parse()?,
+            readable_by: kp_model::AudienceSpec::AllMembers,
+            source_scope_id: None,
+            effective_policy: kp_model::ModelRoutePolicy::RawOnly,
+            op_kind: crate::GovernedUpsertMode::AutoSupersede,
+            thread_key: None,
+            reply_to_key: None,
+            captured_at: AT,
+        },
+        &mut [],
+    )?;
+    let gov_source = gov_out.source.ok_or(StoreError::NotFound)?;
+    let gov_blob = store
+        .raw_source_text(&gov_source.source_id)?
+        .unwrap_or_default();
+    assert!(!gov_blob.contains(&synthetic_token));
+    assert!(gov_blob.contains("[REDACTED]"));
+
+    let hits = store.search_chunks("REDACTION", &"owner".parse()?)?;
+    assert_eq!(hits.len(), 2);
+    for hit in hits {
+        assert!(!hit.body.contains(&synthetic_token));
+        assert!(!hit.heading.contains(&synthetic_token));
+    }
+    assert_eq!(
+        find_sqlite_table_containing_bytes(dir.path(), synthetic_token.as_bytes())?,
+        None
+    );
+    Ok(())
+}

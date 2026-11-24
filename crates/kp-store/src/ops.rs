@@ -201,9 +201,17 @@ impl Store {
             )
             .into());
         }
-        let byte_len = i64::try_from(input.content.len())
+        let redactor = crate::public_ingest::shared_redactor()?;
+        let (redacted_uri, redacted_content, redacted_chunks) =
+            crate::public_ingest::redact_source_bytes_and_chunks(
+                &input.uri,
+                input.content.clone(),
+                input.chunks.clone(),
+                redactor,
+            );
+        let byte_len = i64::try_from(redacted_content.len())
             .map_err(|_| KpError::invalid("raw source", "content exceeds SQLite length range"))?;
-        let _ = i64::try_from(input.chunks.len())
+        let _ = i64::try_from(redacted_chunks.len())
             .map_err(|_| KpError::invalid("chunks", "too many chunks"))?;
 
         let opaque = self.tombstone_id(origin, key)?;
@@ -220,12 +228,12 @@ impl Store {
         }
 
         let vectors = if skip_for_raw_only {
-            embed_chunk_texts(&input.chunks, &FtsOnlyEmbedder)?
+            embed_chunk_texts(&redacted_chunks, &FtsOnlyEmbedder)?
         } else {
-            embed_chunk_texts(&input.chunks, embedder)?
+            embed_chunk_texts(&redacted_chunks, embedder)?
         };
 
-        let content_sha256 = ContentHash::digest(&input.content);
+        let content_sha256 = ContentHash::digest(&redacted_content);
         let blob_id = content_sha256.to_string();
 
         let tx = self
@@ -247,7 +255,7 @@ impl Store {
             params![
                 content_sha256.as_str(),
                 byte_len,
-                &input.content,
+                &redacted_content,
                 input.captured_at.0
             ],
         )?;
@@ -258,7 +266,7 @@ impl Store {
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             params![
                 source_id.as_str(),
-                input.uri,
+                &redacted_uri,
                 input.media_type,
                 content_sha256.as_str(),
                 &blob_id,
@@ -274,7 +282,7 @@ impl Store {
         } else {
             embedder.model_id()
         };
-        for (ordinal, chunk) in input.chunks.iter().enumerate() {
+        for (ordinal, chunk) in redacted_chunks.iter().enumerate() {
             let ordinal_i64 = i64::try_from(ordinal)
                 .map_err(|_| KpError::invalid("chunks", "too many chunks"))?;
             let chunk_id = format!("{source_id}-{ordinal_i64}");
@@ -311,7 +319,7 @@ impl Store {
                 "INSERT INTO chunks_fts (rowid,title,heading,segmented_body) VALUES (?1,?2,?3,?4)",
                 params![
                     fts_rowid,
-                    self.tokenizer.segment_text(&input.uri),
+                    self.tokenizer.segment_text(&redacted_uri),
                     self.tokenizer.segment_text(&chunk.heading),
                     segmented
                 ],
