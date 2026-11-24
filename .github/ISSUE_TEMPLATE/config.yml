@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions & usage discussions
+    url: https://github.com/junjamrk/kipo/discussions
+    about: Ask questions about setup, agent hooks, connectors, or community sync.
+  - name: Private security vulnerability report
+    url: https://github.com/junjamrk/kipo/security/advisories/new
+    about: Report visibility leaks, redaction bypasses, or loopback/UDS vulnerabilities privately.

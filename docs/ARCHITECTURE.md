@@ -44,7 +44,7 @@ kipo/
     ├── kp-store/               # Single-file WAL SQLite (`kp.sqlite`), `raw_blobs`, FTS5 (`jieba-rs`), ONNX/HTTP Embedders, Markdown Export/Apply
     ├── kp-derive/              # Batched L0->L1 extraction, global LLM auto-detection, Datalog meta-rules, JTMS invalidation, `why()`
     ├── kp-retrieve/            # Filter-before-rank hybrid search (BM25 + Vec + RRF + DPP), `<=250`-token prompt budget, `PreToolUse` guard, Judges
-    ├── kp-ingest/              # Non-blocking Claude/Codex Hooks, `tree-sitter` code anchors, Office/PDF/VTT router, real-session `kp dream` miner
+    ├── kp-ingest/              # Non-blocking Claude/Codex Hooks, `tree-sitter` code anchors, Office/PDF/HTML/Web router, real-session `kp dream` miner
     ├── kp-net/                 # Private `0700` UDS `kp daemon`, `127.0.0.1` 4-column Web Inspector, Community Axum Server (REST + MCP + A2A)
     ├── kp-connect/             # Decoupled external connectors (`kp-connector` binary: Feishu `lark-cli`, GitHub API, session backfills -> JSONL)
     └── kp-cli/                 # Package `kipo` building binary `kp` (CLI, `kp demo`, `kp inspect`, `kp mcp`, `kp daemon`, `kp serve`)

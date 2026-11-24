@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 290" width="100%">
+  <defs>
+    <style>
+      .sans { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+    </style>
+  </defs>
+  <rect width="1200" height="290" rx="18" fill="#0B111B" stroke="#24324A" stroke-width="1.5"/>
+
+  <g transform="translate(48, 42)">
+    <rect width="68" height="68" rx="16" fill="#0F2942" stroke="#38BDF8" stroke-width="2"/>
+    <circle cx="24" cy="24" r="6" fill="#38BDF8"/>
+    <circle cx="46" cy="22" r="5" fill="#34D399"/>
+    <circle cx="35" cy="46" r="6" fill="#FBBF24"/>
+    <line x1="24" y1="24" x2="46" y2="22" stroke="#38BDF8" stroke-width="2"/>
+    <line x1="24" y1="24" x2="35" y2="46" stroke="#38BDF8" stroke-width="2"/>
+    <line x1="46" y1="22" x2="35" y2="46" stroke="#34D399" stroke-width="2"/>
+
+    <text x="88" y="36" class="sans" font-size="34" font-weight="800" fill="#F0F6FC">Kipo</text>
+    <rect x="176" y="10" width="58" height="32" rx="8" fill="#172336" stroke="#24324A" stroke-width="1"/>
+    <text x="205" y="31" text-anchor="middle" class="mono" font-size="18" font-weight="700" fill="#38BDF8">kp</text>
+
+    <text x="88" y="64" class="sans" font-size="17" font-weight="500" fill="#94A3B8">
+      Local-first personal and team memory database for AI coding agents, backed by one SQLite file.
+    </text>
+  </g>
+
+  <g transform="translate(48, 138)">
+    <rect x="0" y="0" width="252" height="108" rx="12" fill="#121B2A" stroke="#24324A" stroke-width="1.5"/>
+    <text x="20" y="30" class="mono" font-size="12" font-weight="700" fill="#38BDF8">01  CAPTURE &amp; INGEST</text>
+    <text x="20" y="55" class="sans" font-size="15" font-weight="700" fill="#F0F6FC">Non-blocking agent hooks</text>
+    <text x="20" y="77" class="sans" font-size="13" fill="#94A3B8">Claude Code, Codex, MCP, files,</text>
+    <text x="20" y="95" class="sans" font-size="13" fill="#94A3B8">GitHub, and Feishu via JSONL</text>
+
+    <path d="M 258 54 L 284 54" stroke="#38BDF8" stroke-width="2" fill="none"/>
+    <polygon points="284,49 294,54 284,59" fill="#38BDF8"/>
+
+    <rect x="300" y="0" width="268" height="108" rx="12" fill="#121B2A" stroke="#24324A" stroke-width="1.5"/>
+    <text x="320" y="30" class="mono" font-size="12" font-weight="700" fill="#34D399">02  SINGLE-FILE ENGINE</text>
+    <text x="320" y="55" class="sans" font-size="15" font-weight="700" fill="#F0F6FC">Isomorphic kp.sqlite (WAL)</text>
+    <text x="320" y="77" class="sans" font-size="13" fill="#94A3B8">Redacted L0 blobs, CJK FTS5,</text>
+    <text x="320" y="95" class="sans" font-size="13" fill="#94A3B8">local ONNX vectors, bitemporal L1</text>
+
+    <path d="M 574 54 L 600 54" stroke="#34D399" stroke-width="2" fill="none"/>
+    <polygon points="600,49 610,54 600,59" fill="#34D399"/>
+
+    <rect x="616" y="0" width="252" height="108" rx="12" fill="#121B2A" stroke="#24324A" stroke-width="1.5"/>
+    <text x="636" y="30" class="mono" font-size="12" font-weight="700" fill="#FBBF24">03  PROVENANCE SEMIRING</text>
+    <text x="636" y="55" class="sans" font-size="15" font-weight="700" fill="#F0F6FC">Read-time visibility proofs</text>
+    <text x="636" y="77" class="sans" font-size="13" fill="#94A3B8">Zero copied ACLs; instant forget,</text>
+    <text x="636" y="95" class="sans" font-size="13" fill="#94A3B8">expiry, and roster contraction</text>
+
+    <path d="M 874 54 L 900 54" stroke="#FBBF24" stroke-width="2" fill="none"/>
+    <polygon points="900,49 910,54 900,59" fill="#FBBF24"/>
+
+    <rect x="916" y="0" width="188" height="108" rx="12" fill="#0D2E27" stroke="#34D399" stroke-width="1.5"/>
+    <text x="934" y="30" class="mono" font-size="12" font-weight="700" fill="#34D399">04  GUARDED ACTION</text>
+    <text x="934" y="55" class="sans" font-size="15" font-weight="700" fill="#F0F6FC">&lt;= 250-tok recall</text>
+    <text x="934" y="77" class="sans" font-size="13" fill="#94A3B8">PreToolUse guards,</text>
+    <text x="934" y="95" class="sans" font-size="13" fill="#94A3B8">why proofs, kp dream</text>
+  </g>
+</svg>

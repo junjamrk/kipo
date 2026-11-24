@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a reproducible bug in kp, agent hooks, connectors, or community sync
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do **not** include real API keys, bearer tokens, or private transcripts. For security issues, use [Private Vulnerability Reporting](https://github.com/junjamrk/kipo/security/advisories/new).
+  - type: input
+    id: version
+    attributes:
+      label: Kipo version
+      description: Output of `kp --version` (or commit SHA if built from source)
+      placeholder: "kp 0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon / arm64)
+        - macOS (Intel / x86_64)
+        - Linux (x86_64)
+        - Linux (aarch64)
+        - Windows (x86_64 / arm64)
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Component
+      options:
+        - CLI / Store (kp init, add, ingest, search, export, apply)
+        - Agent Hooks & Guards (Claude Code, Codex, Cursor, Windsurf)
+        - Provenance Semiring / Governance (why, forget, purge, review, log)
+        - Sleep-Time Consolidation (kp dream, skills, feedback)
+        - Daemon / Web Inspector / MCP (kp daemon, kp inspect, kp mcp)
+        - Community Sync / External Connectors (kp serve, sync, kp-connector)
+        - Installer / Packaging (install.sh, install.ps1, Homebrew)
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction commands
+      description: Exact commands starting from an empty temporary directory (`mktemp -d`)
+      render: sh
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened, including exact stdout, stderr, or `--json` error output
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead
+    validations:
+      required: true

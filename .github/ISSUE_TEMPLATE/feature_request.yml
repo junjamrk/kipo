@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a capability, connector, provider recipe, or CLI ergonomic improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Concrete workflow problem
+      description: Describe the real coding-agent or team memory scenario that fails or hurts today
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed CLI, JSONL, or protocol surface
+      description: Sketch the smallest command, flag, or Public Ingest schema change that solves it
+    validations:
+      required: true
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Provenance, privacy, and boundary impact
+      description: How does this interact with read-time semiring visibility, RawOnly policy, or crate decoupling?
+    validations:
+      required: false

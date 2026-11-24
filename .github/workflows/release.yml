@@ -13,6 +13,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -24,10 +26,12 @@ jobs:
     name: Verify Tag & Test Suite
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout repository at release ref
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
-      - name: Verify release tag matches Cargo.toml version
+      - name: Verify release tag matches Cargo.toml version and OSS gates
         run: |
           set -euo pipefail
           RAW_TAG="${{ inputs.tag || github.ref_name }}"
@@ -37,6 +41,8 @@ jobs:
             echo "error: tag '${RAW_TAG}' does not match Cargo.toml version '${CARGO_VER}'" >&2
             exit 1
           fi
+          sh -n scripts/install.sh
+          python3 scripts/verify-oss-readiness.py
 
       - name: Install stable Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -59,29 +65,37 @@ jobs:
             zig_target: x86_64-unknown-linux-gnu.2.28
             os: ubuntu-latest
             archive_ext: tar.gz
+            native_smoke: true
           - target: aarch64-unknown-linux-gnu
             zig_target: aarch64-unknown-linux-gnu.2.28
             os: ubuntu-latest
             archive_ext: tar.gz
+            native_smoke: false
           - target: x86_64-apple-darwin
             zig_target: ""
             os: macos-latest
             archive_ext: tar.gz
+            native_smoke: false
           - target: aarch64-apple-darwin
             zig_target: ""
             os: macos-latest
             archive_ext: tar.gz
+            native_smoke: true
           - target: x86_64-pc-windows-msvc
             zig_target: ""
             os: windows-latest
             archive_ext: zip
+            native_smoke: true
           - target: aarch64-pc-windows-msvc
             zig_target: ""
             os: windows-latest
             archive_ext: zip
+            native_smoke: false
     steps:
-      - name: Checkout repository
+      - name: Checkout repository at release ref
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Install stable Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -118,6 +132,7 @@ jobs:
           cargo build --release --locked --target ${{ matrix.target }} -p kp-connect --bin kp-connector
 
       - name: Package Unix `.tar.gz` archive
+        id: pkg_unix
         if: matrix.archive_ext == 'tar.gz'
         shell: bash
         run: |
@@ -128,13 +143,20 @@ jobs:
           cp "target/${{ matrix.target }}/release/kp" "$STAGE/kp"
           cp "target/${{ matrix.target }}/release/kp-connector" "$STAGE/kp-connector"
           chmod 0755 "$STAGE/kp" "$STAGE/kp-connector"
+          if [ "${{ matrix.native_smoke }}" = "true" ]; then
+            "$STAGE/kp" --version
+            "$STAGE/kp-connector" --version
+          fi
           [ -f LICENSE ] && cp LICENSE "$STAGE/"
           [ -f README.md ] && cp README.md "$STAGE/"
           [ -f THIRD_PARTY_NOTICES.md ] && cp THIRD_PARTY_NOTICES.md "$STAGE/"
           mkdir -p artifacts
-          tar -czf "artifacts/${STAGE_NAME}.tar.gz" -C dist "${STAGE_NAME}"
+          ARCHIVE="artifacts/${STAGE_NAME}.tar.gz"
+          tar -czf "$ARCHIVE" -C dist "${STAGE_NAME}"
+          echo "archive_path=${ARCHIVE}" >> "$GITHUB_OUTPUT"
 
       - name: Package Windows `.zip` archive
+        id: pkg_win
         if: matrix.archive_ext == 'zip'
         shell: pwsh
         run: |
@@ -144,11 +166,24 @@ jobs:
           New-Item -ItemType Directory -Force -Path $Stage | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/kp.exe" "$Stage/kp.exe"
           Copy-Item "target/${{ matrix.target }}/release/kp-connector.exe" "$Stage/kp-connector.exe"
+          if ("${{ matrix.native_smoke }}" -eq "true") {
+            & "$Stage/kp.exe" --version
+            if ($LASTEXITCODE -ne 0) { throw "kp.exe --version failed" }
+            & "$Stage/kp-connector.exe" --version
+            if ($LASTEXITCODE -ne 0) { throw "kp-connector.exe --version failed" }
+          }
           if (Test-Path "LICENSE") { Copy-Item "LICENSE" "$Stage/" }
           if (Test-Path "README.md") { Copy-Item "README.md" "$Stage/" }
           if (Test-Path "THIRD_PARTY_NOTICES.md") { Copy-Item "THIRD_PARTY_NOTICES.md" "$Stage/" }
           New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
-          Compress-Archive -Path $Stage -DestinationPath "artifacts/$StageName.zip" -Force
+          $Archive = "artifacts/$StageName.zip"
+          Compress-Archive -Path $Stage -DestinationPath $Archive -Force
+          "archive_path=$Archive" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Attest build provenance (Sigstore SLSA)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ steps.pkg_unix.outputs.archive_path || steps.pkg_win.outputs.archive_path }}
 
       - name: Upload target archive artifact
         uses: actions/upload-artifact@v4
@@ -162,8 +197,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout repository at release ref
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Download all target archives
         uses: actions/download-artifact@v4
@@ -196,6 +233,11 @@ jobs:
             -e "s/__SHA256_LINUX_ARM64__/${SHA_LIN_ARM}/g" \
             -e "s/__SHA256_LINUX_X86_64__/${SHA_LIN_X64}/g" \
             ../packaging/homebrew/kipo.rb.tmpl > kipo.rb
+
+      - name: Attest SHA256SUMS and installer provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: release-assets/SHA256SUMS
 
       - name: Publish Release to junjamrk/kipo
         if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'

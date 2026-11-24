@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
@@ -36,8 +40,10 @@ jobs:
       - name: Cache Cargo registry and build artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Validate POSIX installer syntax
-        run: sh -n scripts/install.sh
+      - name: Validate POSIX installer syntax and OSS readiness gates
+        run: |
+          sh -n scripts/install.sh
+          python3 scripts/verify-oss-readiness.py
 
       - name: Enforce architectural crate boundaries & privacy guards
         run: |
@@ -95,6 +101,9 @@ jobs:
       - name: Test full workspace (`--all-features`, 100% offline)
         run: cargo test --workspace --all-features --locked
 
+      - name: Smoke-test interactive offline tour (`kp demo`)
+        run: cargo run -p kipo --bin kp --locked -- demo >/dev/null
+
   verify-windows:
     name: Verify Windows (windows-latest)
     runs-on: windows-latest
@@ -104,6 +113,16 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Validate Windows PowerShell installer syntax
+        shell: pwsh
+        run: |
+          $errors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD/scripts/install.ps1", [ref]$null, [ref]$errors)
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.ToString() }
+            exit 1
+          }
 
       - name: Install stable Rust toolchain
         uses: dtolnay/rust-toolchain@stable

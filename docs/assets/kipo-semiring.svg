@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 390" width="100%">
+  <style>
+    :root {
+      --bg: #FFFFFF;
+      --panel-bad: #FEF2F2;
+      --stroke-bad: #FCA5A5;
+      --title-bad: #B91C1C;
+      --panel-good: #ECFDF5;
+      --stroke-good: #6EE7B7;
+      --title-good: #047857;
+      --card: #FFFFFF;
+      --stroke: #CBD5E1;
+      --fg: #0F172A;
+      --muted: #475569;
+      --accent: #0284C7;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0B111B;
+        --panel-bad: #1F1218;
+        --stroke-bad: #7F1D1D;
+        --title-bad: #FCA5A5;
+        --panel-good: #0D231E;
+        --stroke-good: #065F46;
+        --title-good: #6EE7B7;
+        --card: #131D2E;
+        --stroke: #2A3B54;
+        --fg: #F1F5F9;
+        --muted: #94A3B8;
+        --accent: #38BDF8;
+      }
+    }
+    .sans { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+  </style>
+
+  <rect width="1080" height="390" rx="16" fill="var(--bg)" stroke="var(--stroke)" stroke-width="1.5"/>
+
+  <g transform="translate(28, 26)">
+    <rect width="496" height="338" rx="14" fill="var(--panel-bad)" stroke="var(--stroke-bad)" stroke-width="1.5"/>
+    <text x="24" y="36" class="sans" font-size="18" font-weight="800" fill="var(--title-bad)">Conventional shared memory (copied ACLs)</text>
+    <text x="24" y="60" class="sans" font-size="13" fill="var(--muted)">Permissions and validity are baked into summaries at write time.</text>
+
+    <rect x="24" y="84" width="208" height="72" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
+    <text x="38" y="110" class="mono" font-size="12" font-weight="700" fill="var(--fg)">Premise A (Event)</text>
+    <text x="38" y="132" class="mono" font-size="11.5" fill="var(--muted)">aud = &#123;alice, bob, carol&#125;</text>
+
+    <rect x="264" y="84" width="208" height="72" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
+    <text x="278" y="110" class="mono" font-size="12" font-weight="700" fill="var(--fg)">Premise B (Constraint)</text>
+    <text x="278" y="132" class="mono" font-size="11.5" fill="var(--muted)">aud = &#123;alice, bob&#125;</text>
+
+    <line x1="128" y1="156" x2="228" y2="196" stroke="var(--title-bad)" stroke-width="2"/>
+    <line x1="368" y1="156" x2="268" y2="196" stroke="var(--title-bad)" stroke-width="2"/>
+
+    <rect x="24" y="196" width="448" height="118" rx="10" fill="var(--card)" stroke="var(--stroke-bad)" stroke-width="1.5"/>
+    <text x="42" y="224" class="sans" font-size="13.5" font-weight="700" fill="var(--title-bad)">Materialized summary chunk in vector index</text>
+    <text x="42" y="248" class="sans" font-size="12" fill="var(--fg)">1. Summary inherits broad channel ACL, leaking B to carol.</text>
+    <text x="42" y="270" class="sans" font-size="12" fill="var(--fg)">2. When bob leaves or withdraws B, stale summary vectors</text>
+    <text x="42" y="290" class="sans" font-size="12" fill="var(--fg)">   keep surfacing in prompts until manual re-indexing.</text>
+  </g>
+
+  <g transform="translate(556, 26)">
+    <rect width="496" height="338" rx="14" fill="var(--panel-good)" stroke="var(--stroke-good)" stroke-width="1.5"/>
+    <text x="24" y="36" class="sans" font-size="18" font-weight="800" fill="var(--title-good)">Kipo read-time provenance semiring</text>
+    <text x="24" y="60" class="sans" font-size="12.5" fill="var(--muted)">Derived facts store audience = "__semiring__" and evaluate on read.</text>
+
+    <rect x="24" y="84" width="208" height="72" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
+    <text x="38" y="110" class="mono" font-size="12" font-weight="700" fill="var(--fg)">Premise A @ [t1, t2)</text>
+    <text x="38" y="132" class="mono" font-size="11.5" fill="var(--muted)">aud = &#123;alice, bob, carol&#125;</text>
+
+    <rect x="264" y="84" width="208" height="72" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
+    <text x="278" y="110" class="mono" font-size="12" font-weight="700" fill="var(--fg)">Premise B @ [t1, inf)</text>
+    <text x="278" y="132" class="mono" font-size="11.5" fill="var(--muted)">aud = &#123;alice, bob&#125;</text>
+
+    <line x1="128" y1="156" x2="228" y2="196" stroke="var(--title-good)" stroke-width="2"/>
+    <line x1="368" y1="156" x2="268" y2="196" stroke="var(--title-good)" stroke-width="2"/>
+
+    <rect x="24" y="196" width="448" height="118" rx="10" fill="var(--card)" stroke="var(--stroke-good)" stroke-width="1.5"/>
+    <text x="42" y="224" class="mono" font-size="12" font-weight="700" fill="var(--title-good)">visible(v, t) = OR_proof ( AND_p visible(p, v, t) )</text>
+    <text x="42" y="248" class="sans" font-size="12" fill="var(--fg)">1. Effective visibility is &#123;alice, bob&#125; at [t1, t2). Carol gets</text>
+    <text x="42" y="268" class="sans" font-size="12" fill="var(--fg)">   byte-identical 404 and search results with zero leakage.</text>
+    <text x="42" y="288" class="sans" font-size="12" fill="var(--fg)">2. kp forget, clock expiry, or roster change takes 0 ms.</text>
+  </g>
+</svg>

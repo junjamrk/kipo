@@ -1,5 +1,7 @@
 # Kipo (`kp`)：从个人记忆到多 Avatar 协作
 
+[English README](README.md) · [中文主页 (README.zh-CN.md)](README.zh-CN.md) · [架构规范 (ARCHITECTURE.md)](docs/ARCHITECTURE.md) · [写入契约 (INGEST-SCHEMA.md)](docs/INGEST-SCHEMA.md)
+
 **Kipo (`kp`)**（仓库：<https://github.com/junjamrk/kipo>）把原始材料、可检索事实、半环推导依据和闲时演化出的技能统一存放在单文件 SQLite 本地库中。个人库与社区库使用完全同构的同一套引擎。默认检索和日常 Hooks 绝不阻塞会话；可先执行 `kp demo` 在 5 分钟内离线体验全流程（含双宿主配置接入、前提演进与 `StalePremise` 作废、`<kp-context>` 提示召回、双端 `PreToolUse` 守护、Markdown 无损导出写回及 `carol` 零泄漏隔离，并给出打开 `127.0.0.1` 只读查看网页的下一步命令）。
 
 下面的命令适用于 Bash / Zsh，按顺序在同一终端执行。需要 Git；示例用 Python 3 读取 JSON，用 curl 演示社区接口。所有示例数据写入新建的临时目录。
