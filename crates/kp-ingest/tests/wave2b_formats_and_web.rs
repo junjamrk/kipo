@@ -784,18 +784,21 @@ async fn add_url_follows_redirects_blocks_ssrf_rejects_csr_strips_injections_and
     .await?;
     assert_eq!(first.uri, format!("http://{addr}/docs/guide"));
 
-    assert!(matches!(
-        add_url(
-            &mut store,
-            &format!("http://{addr}/docs/guide"),
-            &opts,
-            false,
-            None,
-        )
-        .await,
-        Err(IngestError::Store(kp_store::StoreError::Conflict))
-    ));
+    let second = add_url(
+        &mut store,
+        &format!("http://{addr}/docs/guide"),
+        &opts,
+        false,
+        None,
+    )
+    .await?;
     assert_eq!(state.fetch_count.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        second.source.source_id, first.source.source_id,
+        "re-fetching an unchanged page with rotating <script nonce> must be an idempotent SHA no-op"
+    );
+    assert_eq!(second.source.content_sha256, first.source.content_sha256);
+    assert_eq!(store.status()?.sources, 1);
 
     let (_dir2, mut store2) = library()?;
     let third = add_url(

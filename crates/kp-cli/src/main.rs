@@ -184,12 +184,25 @@ async fn run(cli: &Cli) -> Result<(), Box<dyn Error>> {
         }
         Command::Status => {
             let status = Store::open_readonly(&cli.path)?.status()?;
+            let guard_note = if status.untagged_guard_candidates > 0 {
+                format!(
+                    "\n{} untagged prose guard candidates (tag with [forbid: ...] or run `kp dream`)",
+                    status.untagged_guard_candidates
+                )
+            } else {
+                String::new()
+            };
             output(
                 cli.json,
                 &status,
                 &format!(
-                    "{} ({})\n{} members, {} sources, {} facts",
-                    status.name, status.mode, status.members, status.sources, status.facts
+                    "{} ({})\n{} members, {} sources, {} facts{}",
+                    status.name,
+                    status.mode,
+                    status.members,
+                    status.sources,
+                    status.facts,
+                    guard_note
                 ),
             )?;
         }

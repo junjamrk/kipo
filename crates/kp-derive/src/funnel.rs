@@ -1,15 +1,21 @@
 use std::collections::BTreeSet;
 
 use kp_model::{
-    ActorId, AnchorSpec, AudienceSpec, BitemporalStamp, ContentHash, EpochMs, Fact, FactAccess,
-    FactKind, FactRank, FactStatus, KpError, LogicalKey, TrustTier, ValidityWindow,
+    ActorId, AnchorSpec, AudienceSpec, BitemporalStamp, EpochMs, Fact, FactAccess, FactKind,
+    FactRank, FactStatus, KpError, LogicalKey, ModelRoutePolicy, TrustTier, ValidityWindow,
 };
-use kp_store::{ChunkInput, FactInput, RawSourceInput, Remembered, Result, Store, StoredSource};
+use kp_store::{
+    ChunkInput, FactInput, GovernedSourceInput, GovernedUpsertMode, Remembered, Result, Store,
+    StoreError, StoredSource,
+};
 use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::{ExtractedFact, Extractor};
+use crate::{
+    detect_global_generative_model, DetectedGenerativeModel, ExtractedFact, Extractor,
+    ModelDetectEnv,
+};
 
 pub struct Memory {
     pub subject: String,
@@ -39,6 +45,26 @@ pub fn remember(store: &mut Store, memory: Memory, options: &FunnelOptions) -> R
     store.remember(&[fact])
 }
 
+pub fn default_auto_route_policy() -> ModelRoutePolicy {
+    let is_offline = std::env::var("KP_OFFLINE").ok().is_some_and(|v| {
+        matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    });
+    if (cfg!(test) || is_offline)
+        && std::env::var_os("KP_HOST_CLI_PROGRAM").is_none()
+        && std::env::var_os("KP_MODEL_POLICY").is_none()
+        && std::env::var_os("KP_GENERATIVE_MODEL").is_none()
+    {
+        return ModelRoutePolicy::RawOnly;
+    }
+    match detect_global_generative_model(&ModelDetectEnv::from_process()) {
+        DetectedGenerativeModel::RawOnly => ModelRoutePolicy::RawOnly,
+        other => other.route_policy(),
+    }
+}
+
 pub fn add_markdown(
     store: &mut Store,
     uri: &str,
@@ -52,9 +78,6 @@ pub fn add_markdown(
         }
         None => Vec::new(),
     };
-    let hash = ContentHash::digest(markdown);
-    // An explicit immutable version key permits later edits without rewriting the original.
-    let key: LogicalKey = format!("source:{uri}:{hash}").parse()?;
     let chunks = markdown_chunks(markdown)?;
     let mut inputs = Vec::new();
     for ExtractedFact {
@@ -86,28 +109,35 @@ pub fn add_markdown(
     }
     let end_line = u32::try_from(markdown.lines().count())
         .map_err(|_| KpError::invalid("markdown", "too many lines"))?;
+    let chunk_tag = (!chunks.is_empty()).then(|| "__ordinal__:0".to_owned());
     for input in &mut inputs {
         input.fact.source_anchor = Some(AnchorSpec {
             start_line: Some(1),
             end_line: Some(end_line),
+            chunk_id: chunk_tag.clone(),
             ..AnchorSpec::default()
         });
     }
-    let (source, extracted) = store.ingest_funnel(
-        &store.library_id().clone(),
-        &key,
-        &RawSourceInput {
-            self_echo_filtered: false,
+    let (outcome, extracted) = store.upsert_governed_source_with_facts(
+        GovernedSourceInput {
+            external_source_key: format!("markdown:{uri}"),
             uri: uri.into(),
             media_type: "text/markdown".into(),
-            content: markdown.as_bytes().to_vec(),
-            readable_by: options.audience.clone(),
-            captured_at: options.at,
+            bytes: markdown.as_bytes().to_vec(),
             chunks,
+            speaker: options.actor.clone(),
+            ingested_by: options.actor.clone(),
+            readable_by: options.audience.clone(),
+            source_scope_id: None,
+            effective_policy: default_auto_route_policy(),
+            op_kind: GovernedUpsertMode::AutoSupersede,
+            thread_key: None,
+            reply_to_key: None,
+            captured_at: options.at,
         },
-        &kp_store::HashEmbedder,
         &mut inputs,
     )?;
+    let source = outcome.source.ok_or(StoreError::NotFound)?;
     Ok(FunnelResult { source, extracted })
 }
 

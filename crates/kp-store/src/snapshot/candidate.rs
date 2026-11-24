@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use kp_model::{ActorId, EpochMs, FactId, FactKind};
+use kp_model::{ActorId, EpochMs, FactId, FactKind, TrustTier};
 use rusqlite::{params, OptionalExtension};
 
 use super::render::{
@@ -758,6 +758,8 @@ impl Store {
                             }
                             let p_source =
                                 resolve_fact_source_label(&tx, &self.library_id, &pfact)?;
+                            let p_untrusted = pfact.trust_tier == TrustTier::ExternalUntrusted
+                                || pfact.author.as_str().starts_with("ext.");
                             keyed_premises.push((
                                 premise_display_order(pfact.kind),
                                 PromptPremise {
@@ -766,6 +768,7 @@ impl Store {
                                     speaker: pfact.author.clone(),
                                     source_label: p_source,
                                     claim_or_quote,
+                                    is_untrusted: p_untrusted,
                                 },
                             ));
                         }
@@ -775,6 +778,8 @@ impl Store {
                     supporting_premises = keyed_premises.into_iter().map(|(_, p)| p).collect();
                 }
 
+                let fact_untrusted = fact.trust_tier == TrustTier::ExternalUntrusted
+                    || fact.author.as_str().starts_with("ext.");
                 out.insert(
                     doc_id.clone(),
                     PromptDocMeta {
@@ -786,6 +791,7 @@ impl Store {
                         fact_author: Some(fact.author),
                         source_label,
                         claim_text,
+                        is_untrusted: fact_untrusted,
                         pending_ambiguous_question,
                         supporting_premises,
                     },
@@ -793,7 +799,7 @@ impl Store {
             } else if let Some(chunk_id) = doc_id.strip_prefix("chunk-") {
                 let row: Option<ChunkMetaRow> = tx
                     .query_row(
-                        "SELECT c.heading, c.body, c.created_at, s.uri, s.ingested_by_actor, s.source_scope_id
+                        "SELECT c.heading, c.body, c.created_at, s.uri, s.ingested_by_actor, s.source_scope_id, c.source_id
                          FROM chunks c
                          JOIN raw_sources s ON s.source_id = c.source_id AND s.content_sha256 = c.source_sha256
                          WHERE c.chunk_id = ?1
@@ -824,6 +830,7 @@ impl Store {
                                 uri: r.get(3)?,
                                 ingested_by: r.get(4)?,
                                 scope_id: r.get(5)?,
+                                source_id: r.get(6)?,
                             })
                         },
                     )
@@ -837,10 +844,19 @@ impl Store {
                 if clean_body.is_empty() && clean_heading.is_empty() {
                     continue;
                 }
-                let speaker = row
-                    .ingested_by
-                    .and_then(|s| s.parse::<ActorId>().ok())
+                let meta_speaker =
+                    crate::public_ingest::load_public_source_meta_tx(&tx, &row.source_id)
+                        .ok()
+                        .flatten()
+                        .and_then(|m| m.speaker)
+                        .and_then(|s| s.parse::<ActorId>().ok());
+                let speaker = meta_speaker
+                    .clone()
+                    .or_else(|| row.ingested_by.and_then(|s| s.parse::<ActorId>().ok()))
                     .unwrap_or_else(|| owner_actor.clone());
+                let chunk_untrusted = row.uri.starts_with("http://")
+                    || row.uri.starts_with("https://")
+                    || speaker.as_str().starts_with("ext.");
                 let source_label = row
                     .scope_id
                     .and_then(|sid| lookup_scope_label(&tx, &sid).ok().flatten())
@@ -864,6 +880,7 @@ impl Store {
                         fact_author: None,
                         source_label,
                         claim_text,
+                        is_untrusted: chunk_untrusted,
                         pending_ambiguous_question: None,
                         supporting_premises: Vec::new(),
                     },
@@ -902,4 +919,5 @@ struct ChunkMetaRow {
     uri: String,
     ingested_by: Option<String>,
     scope_id: Option<String>,
+    source_id: String,
 }

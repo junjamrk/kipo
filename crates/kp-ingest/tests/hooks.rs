@@ -730,7 +730,10 @@ async fn pre_tool_is_silent_by_default_and_emits_ask_for_owner_guards_and_policy
             kind: FactKind::Constraint,
             subject: "general".into(),
             predicate: "kp.policy.constraint".into(),
-            object: json!({"text": "周四凌晨主从切换维护窗口内禁止执行数据库迁移"}),
+            object: json!({
+                "text": "周四凌晨主从切换维护窗口内禁止执行数据库迁移",
+                "forbidden_commands": ["sqlx migrate"]
+            }),
             tags: BTreeSet::new(),
             author: "pm_li".parse()?,
             ingested_by: Some("alice".parse()?),
@@ -843,7 +846,10 @@ async fn pre_tool_is_silent_by_default_and_emits_ask_for_owner_guards_and_policy
             kind: FactKind::Constraint,
             subject: "bob".into(),
             predicate: "kp.core.constraint".into(),
-            object: json!({"text": "我自己不直接修改 Cargo.toml"}),
+            object: json!({
+                "text": "我自己不直接修改 Cargo.toml",
+                "file_path": "Cargo.toml"
+            }),
             tags: BTreeSet::new(),
             author: "alice".parse()?,
             ingested_by: None,
@@ -1590,7 +1596,11 @@ async fn codex_pre_tool_use_multi_guard_consumption_is_all_or_nothing() -> Resul
                 kind: FactKind::Constraint,
                 subject: "sqlx migrate".into(),
                 predicate: "kp.policy.guard".into(),
-                object: json!({ "hard_guard": true, "reason": reason }),
+                object: json!({
+                    "hard_guard": true,
+                    "reason": reason,
+                    "forbidden_commands": ["sqlx migrate"]
+                }),
                 tags: BTreeSet::new(),
                 author: actor.clone(),
                 ingested_by: None,

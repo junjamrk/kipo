@@ -338,6 +338,7 @@ pub async fn run(cli: &Cli, command: &MemoryCommand) -> Result<()> {
             extract,
             trusted,
         } => {
+            let global_policy = crate::governance::default_auto_route_policy();
             let options = FunnelOptions {
                 audience: audience(readable_by.as_deref(), &actor)?,
                 actor: actor.clone(),
@@ -347,10 +348,11 @@ pub async fn run(cli: &Cli, command: &MemoryCommand) -> Result<()> {
             if trimmed_target.starts_with("http://") || trimmed_target.starts_with("https://") {
                 let extractor: Option<&dyn kp_derive::Extractor> =
                     if *extract { Some(&RuleExtractor) } else { None };
-                let res = kp_ingest::doc_router::add_url(
+                let res = kp_ingest::doc_router::add_url_with_policy(
                     &mut store,
                     trimmed_target,
                     &options,
+                    &global_policy,
                     *trusted,
                     extractor,
                 )
@@ -372,7 +374,13 @@ pub async fn run(cli: &Cli, command: &MemoryCommand) -> Result<()> {
             for path in paths {
                 let extractor: Option<&dyn kp_derive::Extractor> =
                     if *extract { Some(&RuleExtractor) } else { None };
-                match kp_ingest::doc_router::add_file(&mut store, &path, &options, extractor) {
+                match kp_ingest::doc_router::add_file_with_policy(
+                    &mut store,
+                    &path,
+                    &options,
+                    &global_policy,
+                    extractor,
+                ) {
                     Ok(res) => results.push(res),
                     Err(err) if is_dir => {
                         failed_files.push(json!({

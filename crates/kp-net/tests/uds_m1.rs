@@ -1335,7 +1335,10 @@ async fn pre_tool_check_scales_under_20ms_over_2000_observations_and_matches_nat
     eng_cutover_rule.subject = "研发群规范".into();
     eng_cutover_rule.predicate = "kp.core.constraint".into();
     eng_cutover_rule.tags.clear();
-    eng_cutover_rule.object = json!({"claim_text": "主从切换维护窗口暂停合并非回滚分支"});
+    eng_cutover_rule.object = json!({
+        "claim_text": "主从切换维护窗口暂停合并非回滚分支",
+        "forbidden_commands": ["gh pr merge", "git merge"]
+    });
     eng_cutover_rule.source_anchor = Some(AnchorSpec {
         verbatim_quote: Some("主从切换维护窗口暂停合并非回滚分支".into()),
         ..AnchorSpec::default()
@@ -1379,7 +1382,10 @@ async fn pre_tool_check_scales_under_20ms_over_2000_observations_and_matches_nat
     deploy_concept_guard.subject = "集群变更".into();
     deploy_concept_guard.predicate = "kp.core.constraint".into();
     deploy_concept_guard.tags.clear();
-    deploy_concept_guard.object = json!({"action_concept_id": "cpt_pause_deploy"});
+    deploy_concept_guard.object = json!({
+        "action_concept_id": "cpt_pause_deploy",
+        "forbidden_commands": ["kubectl apply"]
+    });
     store.insert_fact(&deploy_concept_guard)?;
     store.exchange_link_fact_concepts(
         &deploy_concept_guard.id,
@@ -1396,7 +1402,10 @@ async fn pre_tool_check_scales_under_20ms_over_2000_observations_and_matches_nat
     no_force_push.subject = "Git规范".into();
     no_force_push.predicate = "kp.core.constraint".into();
     no_force_push.tags.clear();
-    no_force_push.object = json!("禁止对主干分支强制推送");
+    no_force_push.object = json!({
+        "summary": "禁止对主干分支强制推送",
+        "forbidden_commands": ["git push --force", "git push -f"]
+    });
     no_force_push.source_anchor = Some(AnchorSpec {
         verbatim_quote: Some("禁止对主干分支强制推送".into()),
         ..AnchorSpec::default()
@@ -1412,7 +1421,10 @@ async fn pre_tool_check_scales_under_20ms_over_2000_observations_and_matches_nat
     protect_schema.subject = "存储约束".into();
     protect_schema.predicate = "kp.core.constraint".into();
     protect_schema.tags.clear();
-    protect_schema.object = json!("不要直接修改 schema.sql");
+    protect_schema.object = json!({
+        "summary": "不要直接修改 schema.sql",
+        "file_path": "schema.sql"
+    });
     protect_schema.source_anchor = Some(AnchorSpec {
         verbatim_quote: Some("不要直接修改 schema.sql".into()),
         ..AnchorSpec::default()
@@ -2066,6 +2078,7 @@ async fn shell_word_tokenization_and_path_segment_suffix_prevent_merge_base_and_
     merge_rule.tags.clear();
     merge_rule.object = json!({
         "command": "git merge",
+        "forbidden_commands": ["git merge", "gh pr merge"],
         "claim_text": "维护窗口暂停执行 git merge 合并分支"
     });
     store.insert_fact(&merge_rule)?;

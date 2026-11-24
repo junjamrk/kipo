@@ -5,8 +5,10 @@ use std::sync::{Arc, RwLock};
 
 use clap::{Args, Subcommand, ValueEnum};
 use kp_derive::{
-    align_concepts_and_derive, build_extraction_batch_request_for_policy,
-    build_named_endpoint_llm_client, detect_global_generative_model, reconcile_contradicted_events,
+    align_concepts_and_derive, build_command_guard_backfill_prompt,
+    build_extraction_batch_request_for_policy, build_named_endpoint_llm_client,
+    command_guard_backfill_json_schema, detect_global_generative_model,
+    parse_command_guard_backfill_reply, reconcile_contradicted_events,
     resolve_ambiguous_scope_review, resolve_named_endpoint_config, stage_extracted_atoms,
     CollisionDeriveOutcome, DetectedGenerativeModel, HostCliConfig, HostCliKind, HostCliRunner,
     HttpApiLlmClient, ModelDetectEnv, NlFunnelOptions, PolicyRoutedLlmClient, RawOnlyLlmClient,
@@ -566,7 +568,97 @@ pub(crate) async fn drain_for_public_ingest(
     run_extract_inner(store, actor, &args, at, false, None).await
 }
 
-/// Drains queued extraction jobs during `kp dream` Phase 1 using the lease-fenced extraction loop.
+pub(crate) async fn backfill_legacy_prose_command_guards(
+    store: &mut Store,
+    llm_override: Option<&Arc<dyn LlmClient>>,
+    at: EpochMs,
+) -> Result<usize> {
+    let candidates = store.list_untagged_guard_candidates()?;
+    if candidates.is_empty() {
+        return Ok(0);
+    }
+    let redactor = SecretRedactor::new()?;
+    let schema = command_guard_backfill_json_schema();
+    let proc_env = ModelDetectEnv::from_process();
+    let mut host_client_cache: Option<Arc<dyn LlmClient>> = None;
+    let mut named_cache: BTreeMap<String, Arc<dyn LlmClient>> = BTreeMap::new();
+    let mut upgraded = 0usize;
+
+    for cand in candidates {
+        if cand.route_policy == ModelRoutePolicy::RawOnly {
+            continue;
+        }
+        let client: Arc<dyn LlmClient> = if let Some(ov) = llm_override {
+            if ov.is_raw_only() {
+                continue;
+            }
+            if matches!(&cand.route_policy, ModelRoutePolicy::NamedEndpoint(_))
+                && ov.route_policy() != cand.route_policy
+            {
+                continue;
+            }
+            Arc::clone(ov)
+        } else {
+            match &cand.route_policy {
+                ModelRoutePolicy::RawOnly => continue,
+                ModelRoutePolicy::HostCli => {
+                    if let Some(ref c) = host_client_cache {
+                        Arc::clone(c)
+                    } else {
+                        let detected = detect_global_model();
+                        if matches!(detected, DetectedGenerativeModel::RawOnly)
+                            || detected.route_policy() == ModelRoutePolicy::RawOnly
+                        {
+                            continue;
+                        }
+                        let Ok(built) = detected.build_llm_client() else {
+                            continue;
+                        };
+                        host_client_cache = Some(Arc::clone(&built));
+                        built
+                    }
+                }
+                ModelRoutePolicy::NamedEndpoint(ep) => {
+                    if let Some(c) = named_cache.get(ep) {
+                        Arc::clone(c)
+                    } else {
+                        let Ok(built) = build_named_endpoint_llm_client(ep, &proc_env) else {
+                            continue;
+                        };
+                        named_cache.insert(ep.clone(), Arc::clone(&built));
+                        built
+                    }
+                }
+            }
+        };
+
+        let prompt = build_command_guard_backfill_prompt(
+            &cand.subject,
+            &cand.claim_or_summary,
+            cand.verbatim_quote.as_deref(),
+            &redactor,
+        );
+        let Ok(Some(raw_reply)) = client
+            .complete_structured_json("kp_command_guard_backfill", &schema, &prompt)
+            .await
+        else {
+            continue;
+        };
+        let Ok(parsed_spec) = parse_command_guard_backfill_reply(raw_reply) else {
+            continue;
+        };
+        if store.apply_command_guard_backfill(
+            &cand.fact_id,
+            &cand.content_sha256,
+            parsed_spec.as_ref(),
+            at,
+        )? {
+            upgraded += 1;
+        }
+    }
+    Ok(upgraded)
+}
+
 pub(crate) async fn drain_for_dream(
     store: &mut Store,
     actor: &ActorId,
@@ -574,6 +666,9 @@ pub(crate) async fn drain_for_dream(
     llm_override: Option<Arc<dyn LlmClient>>,
 ) -> Result<Value> {
     if store.pending_extraction_job_count()? == 0 {
+        let backfilled =
+            backfill_legacy_prose_command_guards(store, llm_override.as_ref(), at).await?;
+        let untagged = store.untagged_guard_candidate_count()?;
         return Ok(json!({
             "jobs_processed": 0,
             "jobs_paused_quota": 0,
@@ -583,6 +678,8 @@ pub(crate) async fn drain_for_dream(
             "derived_warnings": 0,
             "superseded_contradicted_events": [],
             "emitted_reviews": [],
+            "guards_backfilled": backfilled,
+            "untagged_guard_candidates": untagged,
         }));
     }
     let args = ExtractArgs {
@@ -599,7 +696,14 @@ pub(crate) async fn drain_for_dream(
         force: false,
         at: Some(at.0),
     };
-    run_extract_inner(store, actor, &args, at, false, llm_override).await
+    let mut out = run_extract_inner(store, actor, &args, at, false, llm_override.clone()).await?;
+    let backfilled = backfill_legacy_prose_command_guards(store, llm_override.as_ref(), at).await?;
+    let untagged = store.untagged_guard_candidate_count()?;
+    if let Value::Object(ref mut map) = out {
+        map.insert("guards_backfilled".into(), json!(backfilled));
+        map.insert("untagged_guard_candidates".into(), json!(untagged));
+    }
+    Ok(out)
 }
 
 /// Drains queued background extraction jobs inside `kp daemon`, routing per `job.model_policy` and

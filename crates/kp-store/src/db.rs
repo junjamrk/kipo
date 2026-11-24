@@ -32,6 +32,7 @@ pub struct LibraryStatus {
     pub members: u64,
     pub sources: u64,
     pub facts: u64,
+    pub untagged_guard_candidates: usize,
 }
 
 /// The only API returning a bearer token. Debug deliberately omits the credential.
@@ -385,6 +386,7 @@ impl Store {
             facts: self
                 .db
                 .query_row("SELECT count(*) FROM facts", [], |r| r.get(0))?,
+            untagged_guard_candidates: self.untagged_guard_candidate_count()?,
         })
     }
 

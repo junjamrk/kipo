@@ -153,6 +153,7 @@ fn narrow_model_boundary_rejects_unapproved_concepts_premises_and_foreign_update
         write_op: ModelWriteOp::SupersedeOwn {
             target_fact_id: "bob_old_rule".parse()?,
         },
+        command_guard: None,
     };
     let verified = req.validate_model_atom(&valid_atom)?;
     assert_eq!(verified.exact_quote, "我们读书会每次活动都不迟到");
@@ -237,6 +238,7 @@ fn quote_atom(quote: &str, speaker: Option<&str>) -> Result<ModelExtractedAtom> 
         },
         evidence: None,
         write_op: ModelWriteOp::Add,
+        command_guard: None,
     })
 }
 

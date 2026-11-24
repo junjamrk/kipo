@@ -10,7 +10,7 @@ use crate::embedding::{
     validate_vector, FtsOnlyEmbedder,
 };
 use crate::tombstone::guard;
-use crate::{Embedder, FactInput, Remembered, Result, Store, StoreError};
+use crate::{Embedder, Result, Store, StoreError};
 
 pub struct RawSourceInput {
     pub self_echo_filtered: bool,
@@ -168,8 +168,7 @@ impl Store {
         input: &RawSourceInput,
         embedder: &(impl crate::Embedder + ?Sized),
     ) -> Result<StoredSource> {
-        let (source, _) = self.ingest_funnel(origin, key, input, embedder, &mut [])?;
-        Ok(source)
+        self.ingest_raw_source_inner(origin, key, input, &ModelRoutePolicy::HostCli, embedder)
     }
 
     /// Ingests a raw source honoring `policy`: when `policy == ModelRoutePolicy::RawOnly`, marks
@@ -182,42 +181,17 @@ impl Store {
         policy: &ModelRoutePolicy,
     ) -> Result<StoredSource> {
         let embedder = self.embedder.clone();
-        let (source, _) =
-            self.ingest_funnel_with_policy(origin, key, input, policy, embedder.as_ref(), &mut [])?;
-        Ok(source)
+        self.ingest_raw_source_inner(origin, key, input, policy, embedder.as_ref())
     }
 
-    /// Persists the L0 source (including `raw_blobs`) and validated L1 facts atomically in one
-    /// SQLite `TransactionBehavior::Immediate` transaction.
-    pub fn ingest_funnel(
-        &mut self,
-        origin: &LibraryId,
-        key: &LogicalKey,
-        input: &RawSourceInput,
-        embedder: &(impl crate::Embedder + ?Sized),
-        facts: &mut [FactInput],
-    ) -> Result<(StoredSource, Remembered)> {
-        self.ingest_funnel_with_policy(
-            origin,
-            key,
-            input,
-            &ModelRoutePolicy::HostCli,
-            embedder,
-            facts,
-        )
-    }
-
-    /// Policy-aware variant of [`Store::ingest_funnel`] that tags `RawOnly` sources and shields
-    /// their chunks and facts from external/cloud [`Embedder`] calls.
-    pub fn ingest_funnel_with_policy(
+    fn ingest_raw_source_inner(
         &mut self,
         origin: &LibraryId,
         key: &LogicalKey,
         input: &RawSourceInput,
         policy: &ModelRoutePolicy,
         embedder: &(impl crate::Embedder + ?Sized),
-        facts: &mut [FactInput],
-    ) -> Result<(StoredSource, Remembered)> {
+    ) -> Result<StoredSource> {
         let is_raw_only = matches!(policy, ModelRoutePolicy::RawOnly);
         let skip_for_raw_only = is_raw_only && !embedder.allows_raw_only();
         if matches!(input.readable_by, AudienceSpec::SemiringDerived) {
@@ -250,17 +224,6 @@ impl Store {
         } else {
             embed_chunk_texts(&input.chunks, embedder)?
         };
-        for item in facts.iter_mut() {
-            item.fact
-                .source_anchor
-                .get_or_insert_with(AnchorSpec::default)
-                .source_id = Some(source_id.clone());
-        }
-        if skip_for_raw_only {
-            crate::slots::prevalidate_fact_inputs(&self.db, facts, &FtsOnlyEmbedder)?;
-        } else {
-            crate::slots::prevalidate_fact_inputs(&self.db, facts, embedder)?;
-        }
 
         let content_sha256 = ContentHash::digest(&input.content);
         let blob_id = content_sha256.to_string();
@@ -371,22 +334,12 @@ impl Store {
                 params![source_id.as_str(), input.captured_at.0],
             )?;
         }
-        let extracted = if skip_for_raw_only {
-            crate::slots::remember_facts_indexed(&tx, facts, &self.tokenizer, &FtsOnlyEmbedder)?
-        } else {
-            crate::slots::remember_facts_indexed(&tx, facts, &self.tokenizer, embedder)?
-        };
         tx.commit()?;
-        self.register_entities(facts);
-        self.sync_skills_now()?;
-        Ok((
-            StoredSource {
-                source_id,
-                content_sha256,
-                git_blob: blob_id,
-            },
-            extracted,
-        ))
+        Ok(StoredSource {
+            source_id,
+            content_sha256,
+            git_blob: blob_id,
+        })
     }
 }
 

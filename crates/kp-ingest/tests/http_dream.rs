@@ -301,7 +301,6 @@ async fn external_untrusted_premise_forces_keep_base_in_dream_and_store_defense_
     assert_eq!(report.kept_base, 1);
     assert_eq!(report.bullets_created, 0);
 
-    // Direct store-layer defense-in-depth check (`apply_attribution_with_rules`).
     let ep_2 = Episode {
         signal_kind: ContrastKind::HumanCorrection,
         session_id: "untrusted-2".into(),

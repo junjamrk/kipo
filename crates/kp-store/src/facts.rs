@@ -1,9 +1,11 @@
 use kp_model::{
-    ActorId, AudienceSpec, BitemporalStamp, DerivationView, EpochMs, Fact, FactAccess, FactId,
-    Justification, KpError, ModelRoutePolicy, Premise, SourceId, SourceScope, SourceScopeId,
-    StrongRef, TrustTier, ValidityWindow,
+    ActorId, AudienceSpec, BitemporalStamp, CommandGuardSpec, ContentHash, DerivationView, EpochMs,
+    Fact, FactAccess, FactId, FactKind, GovernedScope, Justification, KpError, ModelRoutePolicy,
+    Premise, SourceId, SourceScope, SourceScopeId, StrongRef, TrustTier, ValidityWindow,
 };
 use rusqlite::{params, Connection, OptionalExtension, Row, TransactionBehavior};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use crate::embedding::{
     default_embedder_for_meta, encode_vector_le_bytes, guard_and_lock_tx_embedding_dims,
@@ -646,6 +648,246 @@ pub(crate) fn read_graph(db: &Connection) -> Result<DerivationView> {
         });
     }
     Ok(graph)
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UntaggedGuardCandidate {
+    pub fact_id: FactId,
+    pub content_sha256: ContentHash,
+    pub kind: FactKind,
+    pub subject: String,
+    pub claim_or_summary: String,
+    pub verbatim_quote: Option<String>,
+    pub route_policy: ModelRoutePolicy,
+}
+
+fn object_has_typed_guard_or_checked(obj: &Value) -> bool {
+    let Some(map) = obj.as_object() else {
+        return false;
+    };
+    if map.get("guard_checked").and_then(Value::as_bool) == Some(true) {
+        return true;
+    }
+    for arr_key in ["forbidden_commands", "allowed_commands", "required_flags"] {
+        if map
+            .get(arr_key)
+            .and_then(Value::as_array)
+            .is_some_and(|a| !a.is_empty())
+        {
+            return true;
+        }
+    }
+    for str_key in ["command", "file_path", "resource"] {
+        if map
+            .get(str_key)
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.trim().is_empty())
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn extract_prose_summary_for_backfill(obj: &Value, subject: &str) -> String {
+    match obj {
+        Value::String(s) => s.trim().to_owned(),
+        Value::Object(map) => [
+            "claim_text",
+            "summary",
+            "statement",
+            "reason",
+            "rule",
+            "text",
+            "message",
+        ]
+        .iter()
+        .find_map(|k| map.get(*k).and_then(Value::as_str).map(str::trim))
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_else(|| subject.trim().to_owned()),
+        _ => subject.trim().to_owned(),
+    }
+}
+
+impl Store {
+    pub fn list_untagged_guard_candidates(&self) -> Result<Vec<UntaggedGuardCandidate>> {
+        let mut stmt = self.db.prepare(
+            "SELECT * FROM facts f
+             WHERE f.status = 'active'
+               AND f.kind IN ('constraint', 'decision')
+               AND f.trust_tier != ?1
+               AND NOT EXISTS (SELECT 1 FROM code_anchors ca WHERE ca.fact_id = f.fact_id)
+               AND NOT EXISTS (
+                   SELECT 1 FROM change_log cl
+                   WHERE cl.op = 'guard_backfill_checked'
+                     AND cl.target_id = f.fact_id
+                     AND cl.content_sha256 = f.content_sha256
+               )
+             ORDER BY f.recorded_at ASC, f.fact_id ASC",
+        )?;
+        let mut rows = stmt.query([i64::from(TrustTier::ExternalUntrusted as u8)])?;
+        let mut out = Vec::new();
+        while let Some(row) = rows.next()? {
+            let fact = read_fact(row)?;
+            if fact.author.as_str().starts_with("ext.")
+                || matches!(fact.governed_scope, Some(GovernedScope::Resource { .. }))
+                || object_has_typed_guard_or_checked(&fact.object)
+            {
+                continue;
+            }
+            let claim_or_summary = extract_prose_summary_for_backfill(&fact.object, &fact.subject);
+            let verbatim_quote = fact
+                .source_anchor
+                .as_ref()
+                .and_then(|a| a.verbatim_quote.clone())
+                .filter(|q| !q.trim().is_empty());
+            if claim_or_summary.is_empty() && verbatim_quote.is_none() {
+                continue;
+            }
+            let route_policy = fact_effective_route_policy_in_tx(&self.db, &fact)?;
+            let content_sha256 = fact.strong_ref().content_sha256;
+            out.push(UntaggedGuardCandidate {
+                fact_id: fact.id,
+                content_sha256,
+                kind: fact.kind,
+                subject: fact.subject,
+                claim_or_summary,
+                verbatim_quote,
+                route_policy,
+            });
+        }
+        Ok(out)
+    }
+
+    pub fn untagged_guard_candidate_count(&self) -> Result<usize> {
+        Ok(self.list_untagged_guard_candidates()?.len())
+    }
+
+    pub fn apply_command_guard_backfill(
+        &mut self,
+        fact_id: &FactId,
+        expected_sha256: &ContentHash,
+        spec: Option<&CommandGuardSpec>,
+        at: EpochMs,
+    ) -> Result<bool> {
+        let tx = self
+            .db
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut stmt = tx.prepare(
+            "SELECT *, fts_rowid, tags_json, source_anchor_json
+             FROM facts
+             WHERE fact_id = ?1 AND status = 'active' AND content_sha256 = ?2",
+        )?;
+        let mut rows = stmt.query(params![fact_id.as_str(), expected_sha256.as_str()])?;
+        let row_opt = if let Some(r) = rows.next()? {
+            let fact = read_fact(r)?;
+            let fts_rowid: i64 = r.get("fts_rowid")?;
+            let tags_json: String = r.get("tags_json")?;
+            let anchor_json: Option<String> = r.get("source_anchor_json")?;
+            Some((fts_rowid, fact, tags_json, anchor_json))
+        } else {
+            None
+        };
+        drop(rows);
+        drop(stmt);
+        let Some((fts_rowid, mut fact, tags_json, anchor_json)) = row_opt else {
+            return Ok(false);
+        };
+
+        let normalized = spec.map(CommandGuardSpec::normalized).unwrap_or_default();
+        let has_guard = !normalized.is_empty();
+
+        let new_object = match fact.object {
+            Value::Object(mut map) => {
+                map.insert("guard_checked".into(), json!(true));
+                if has_guard {
+                    map.insert(
+                        "forbidden_commands".into(),
+                        serde_json::to_value(&normalized.forbidden_commands)?,
+                    );
+                    map.insert(
+                        "allowed_commands".into(),
+                        serde_json::to_value(&normalized.allowed_commands)?,
+                    );
+                    map.insert(
+                        "required_flags".into(),
+                        serde_json::to_value(&normalized.required_flags)?,
+                    );
+                    if normalized.has_enforced_guard() {
+                        map.insert("hard_guard".into(), json!(true));
+                    }
+                }
+                Value::Object(map)
+            }
+            Value::String(s) => {
+                if has_guard {
+                    let mut map = serde_json::Map::new();
+                    map.insert("summary".into(), Value::String(s));
+                    map.insert("guard_checked".into(), json!(true));
+                    map.insert(
+                        "forbidden_commands".into(),
+                        serde_json::to_value(&normalized.forbidden_commands)?,
+                    );
+                    map.insert(
+                        "allowed_commands".into(),
+                        serde_json::to_value(&normalized.allowed_commands)?,
+                    );
+                    map.insert(
+                        "required_flags".into(),
+                        serde_json::to_value(&normalized.required_flags)?,
+                    );
+                    if normalized.has_enforced_guard() {
+                        map.insert("hard_guard".into(), json!(true));
+                    }
+                    Value::Object(map)
+                } else {
+                    Value::String(s)
+                }
+            }
+            other => other,
+        };
+
+        fact.object = new_object;
+        let new_sha = fact.strong_ref().content_sha256;
+        let new_obj_json = serde_json::to_string(&fact.object)?;
+
+        if new_sha != *expected_sha256 {
+            tx.execute(
+                "UPDATE facts SET object_json = ?1, content_sha256 = ?2 WHERE fact_id = ?3",
+                params![&new_obj_json, new_sha.as_str(), fact_id.as_str()],
+            )?;
+            tx.execute(
+                "UPDATE justification_premises
+                 SET premise_sha256 = ?1
+                 WHERE premise_fact_id = ?2 AND premise_sha256 = ?3",
+                params![new_sha.as_str(), fact_id.as_str(), expected_sha256.as_str()],
+            )?;
+            tx.execute("DELETE FROM facts_fts WHERE rowid = ?1", [fts_rowid])?;
+            let (fts_subj, fts_pred, fts_obj) = fact_fts_columns(
+                &self.tokenizer,
+                &fact.subject,
+                &fact.predicate,
+                &new_obj_json,
+                &tags_json,
+                anchor_json.as_deref(),
+            );
+            tx.execute(
+                "INSERT INTO facts_fts (rowid, subject, predicate, segmented_object)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![fts_rowid, fts_subj, fts_pred, fts_obj],
+            )?;
+            crate::exchange::mark_alignment_dirty_tx(&tx, at)?;
+        }
+
+        tx.execute(
+            "INSERT INTO change_log (op, target_id, content_sha256, created_at)
+             VALUES ('guard_backfill_checked', ?1, ?2, ?3)",
+            params![fact_id.as_str(), new_sha.as_str(), at.0],
+        )?;
+        tx.commit()?;
+        Ok(has_guard)
+    }
 }
 
 pub(crate) fn read_fact(row: &Row<'_>) -> Result<Fact> {

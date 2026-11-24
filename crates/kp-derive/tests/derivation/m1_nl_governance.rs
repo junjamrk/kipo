@@ -105,6 +105,7 @@ async fn m1_journey_open_concepts_three_premise_collision_privacy_expiry_and_reo
                     },
                     write_op: ModelWriteOp::Add,
                     evidence: None,
+                    command_guard: None,
                 },
                 ModelExtractedAtom {
                     kind: FactKind::Constraint,
@@ -145,6 +146,7 @@ async fn m1_journey_open_concepts_three_premise_collision_privacy_expiry_and_reo
                     },
                     write_op: ModelWriteOp::Add,
                     evidence: None,
+                    command_guard: None,
                 },
             ],
         },
@@ -227,6 +229,7 @@ async fn m1_journey_open_concepts_three_premise_collision_privacy_expiry_and_reo
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             }],
         },
     )?;
@@ -333,6 +336,7 @@ async fn m1_journey_open_concepts_three_premise_collision_privacy_expiry_and_reo
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             }],
         },
     )?;
@@ -450,6 +454,7 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         },
         ModelExtractedAtom {
             kind: FactKind::Constraint,
@@ -483,6 +488,7 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         },
         ModelExtractedAtom {
             kind: FactKind::Constraint,
@@ -526,6 +532,7 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         },
     ];
 
@@ -606,6 +613,7 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([alice.clone()])),
@@ -706,6 +714,7 @@ async fn m1_journey_self_only_never_leaks_and_ambiguous_scope_reviews_only_on_cr
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([alice.clone(), bob.clone()])),
@@ -851,6 +860,7 @@ async fn m1_journey_unrelated_city_blocks_false_positive_and_ambiguous_alignment
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -881,6 +891,7 @@ async fn m1_journey_unrelated_city_blocks_false_positive_and_ambiguous_alignment
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -913,6 +924,7 @@ async fn m1_journey_unrelated_city_blocks_false_positive_and_ambiguous_alignment
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -941,6 +953,7 @@ async fn m1_journey_unrelated_city_blocks_false_positive_and_ambiguous_alignment
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -1033,6 +1046,7 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([bob.clone()])),
@@ -1092,6 +1106,7 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         }],
         &opts_with_rej,
     )?;
@@ -1148,6 +1163,7 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         }],
         &opts_with_rej,
     )?;
@@ -1198,6 +1214,7 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([bob.clone()])),
@@ -1237,6 +1254,7 @@ fn m1_journey_dual_key_rejection_blocks_reworded_reextraction_while_forget_allow
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([bob.clone()])),
@@ -1386,6 +1404,7 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
         },
         write_op: ModelWriteOp::Add,
         evidence: None,
+        command_guard: None,
     };
     let smuggle_out = apply_extracted_atoms(
         &mut store,
@@ -1444,6 +1463,7 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Observation,
@@ -1467,6 +1487,7 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &opts,
@@ -1598,6 +1619,7 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
             target_fact_id: dec_ch.id,
         },
         evidence: None,
+        command_guard: None,
     };
     assert!(apply_extracted_atoms(
         &mut store,
@@ -1638,6 +1660,7 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
                     target_fact_id: valid_out.created_fact_ids[0].clone(),
                 },
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Observation,
@@ -1661,6 +1684,7 @@ fn m1_security_narrow_boundary_alias_resolution_source_scope_and_assumed_premise
                 },
                 write_op: ModelWriteOp::None,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -1754,6 +1778,7 @@ fn named_mention_atom(chunk_id: &str, quote: &str, mention: &str) -> ModelExtrac
         },
         write_op: ModelWriteOp::Add,
         evidence: None,
+        command_guard: None,
     }
 }
 
@@ -1892,6 +1917,7 @@ fn schedule_event_atom(
         },
         write_op: ModelWriteOp::Add,
         evidence: None,
+        command_guard: None,
     }
 }
 
@@ -2177,6 +2203,7 @@ async fn m1_multi_speaker_window_batch_blocks_assistant_quotes_and_attributes_pe
         },
         write_op: ModelWriteOp::Add,
         evidence: None,
+        command_guard: None,
     };
     assert!(apply_extracted_atoms(
         &mut store,
@@ -2222,6 +2249,7 @@ async fn m1_multi_speaker_window_batch_blocks_assistant_quotes_and_attributes_pe
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -2249,6 +2277,7 @@ async fn m1_multi_speaker_window_batch_blocks_assistant_quotes_and_attributes_pe
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(AudienceSpec::AllMembers, t0),
@@ -2419,6 +2448,7 @@ async fn m1_two_personal_libraries_sunday_upcoming_friday_habitual_rule_and_quot
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([alice.clone()])),
@@ -2490,6 +2520,7 @@ async fn m1_two_personal_libraries_sunday_upcoming_friday_habitual_rule_and_quot
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 // Model mislabels habitual group norm as `"observation"` -> coerced to `Constraint`!
@@ -2531,6 +2562,7 @@ async fn m1_two_personal_libraries_sunday_upcoming_friday_habitual_rule_and_quot
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(

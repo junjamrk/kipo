@@ -894,6 +894,7 @@ mod tests {
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         };
         let event_missing_cond = ModelExtractedAtom {
             condition_concept: None,
@@ -922,6 +923,7 @@ mod tests {
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         };
         let bad_date_atom = ModelExtractedAtom {
             kind: FactKind::Event,
@@ -954,6 +956,7 @@ mod tests {
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         };
         let valid_erin = ModelExtractedAtom {
             // Even when model labels a scoped condition+action rule as `"observation"`,
@@ -991,6 +994,7 @@ mod tests {
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         };
         let bad_membership = ModelExtractedAtom {
             kind: FactKind::Membership,
@@ -1019,6 +1023,7 @@ mod tests {
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         };
 
         // 1) Security boundary violations (`speaker`, `write_op`, `assumed_premise_ids`)
@@ -1112,7 +1117,6 @@ mod tests {
             .map_err(|_| kp_model::KpError::invalid("tz", "Asia/Shanghai"))?;
         let calendar = CalendarTable::from_reference_in_tz(t0, &shanghai)?;
 
-        // Case A: Unconfirmed external speaker `ext.github.stranger` on a non-HTTP source.
         let ext_body = "[speaker:ext.github.stranger] Never run npm publish in this repo. Current Node version is 22.4.\n";
         let ext_req = build_extraction_batch_request_for_policy(
             &store,
@@ -1158,6 +1162,7 @@ mod tests {
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             }
         };
 
@@ -1204,7 +1209,6 @@ mod tests {
         assert!(ext_out.rejected_atoms.iter().all(|r| r.reason
             == "untrusted source or unconfirmed external speaker restricted to observation or fact_slot"));
 
-        // Case B: Confirmed owner `alice` ingesting an `http://` web source.
         let web_body = "Never run cargo publish without dry-run. Service default port is 8080.";
         let web_req = build_extraction_batch_request_for_policy(
             &store,

@@ -1,14 +1,17 @@
 // Native routing and explicit NeedsOcr follow SAG-Wiki/core/src/anydoc.rs (MIT).
 use std::path::Path;
 
-use kp_derive::{base_fact, Extractor, FunnelOptions, Memory};
-use kp_model::{AnchorSpec, ContentHash, ValidityWindow};
-use kp_store::{ChunkInput, RawSourceInput, Remembered, Store, StoredSource};
+use kp_derive::{base_fact, default_auto_route_policy, Extractor, FunnelOptions, Memory};
+use kp_model::{AnchorSpec, ModelRoutePolicy, ValidityWindow};
+use kp_store::{
+    ChunkInput, GovernedSourceInput, GovernedUpsertMode, Remembered, Store, StoreError,
+    StoredSource,
+};
 use serde::Serialize;
 
 use crate::{code_intel, office, text, web_and_media, IngestError, Result, MAX_INPUT_BYTES};
 
-pub use crate::web_and_media::add_url;
+pub use crate::web_and_media::{add_url, add_url_with_policy};
 
 pub struct Document {
     pub media_type: &'static str,
@@ -118,15 +121,26 @@ pub fn parse(path: &Path, bytes: &[u8]) -> Result<Document> {
             chunks: text::csv_bytes(bytes)?,
             needs_ocr: false,
         },
-        "txt" | "json" => {
-            let media_type = if extension == "json" {
-                "application/json"
+        "txt" => Document {
+            media_type: "text/plain",
+            chunks: text::plain_text_bytes(bytes)?,
+            needs_ocr: false,
+        },
+        "json" => {
+            let source = text::decode(bytes)?;
+            let chunks = if source.is_empty() {
+                Vec::new()
             } else {
-                "text/plain"
+                let anchor = text::line_anchor(&source, 0..source.len())?;
+                vec![ChunkInput {
+                    heading: String::new(),
+                    body: source.into_owned(),
+                    anchor,
+                }]
             };
             Document {
-                media_type,
-                chunks: text::plain_text_bytes(bytes)?,
+                media_type: "application/json",
+                chunks,
                 needs_ocr: false,
             }
         }
@@ -427,14 +441,32 @@ pub fn add_file(
     options: &FunnelOptions,
     extractor: Option<&dyn Extractor>,
 ) -> Result<AddedDocument> {
+    let policy = default_auto_route_policy();
+    add_file_with_policy(store, path, options, &policy, extractor)
+}
+
+pub fn add_file_with_policy(
+    store: &mut Store,
+    path: &Path,
+    options: &FunnelOptions,
+    effective_policy: &ModelRoutePolicy,
+    extractor: Option<&dyn Extractor>,
+) -> Result<AddedDocument> {
     let bytes = crate::read_file(path)?;
     let document = parse(path, &bytes)?;
     let uri = path.to_string_lossy().into_owned();
-    let key = format!("source:{uri}:{}", ContentHash::digest(&bytes)).parse()?;
+    let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let external_source_key = format!("file://{}", canonical.to_string_lossy());
     let mut inputs = Vec::new();
     if let Some(extractor) = extractor {
-        for chunk in &document.chunks {
-            for extracted in extractor.extract(&chunk.body, &uri)? {
+        for (ordinal, chunk) in document.chunks.iter().enumerate() {
+            let heading_ctx = (!chunk.heading.trim().is_empty()).then_some(chunk.heading.as_str());
+            for extracted in extractor.extract_chunk(
+                &chunk.body,
+                &uri,
+                heading_ctx,
+                Some(document.media_type),
+            )? {
                 let mut input = base_fact(
                     store,
                     Memory {
@@ -452,44 +484,39 @@ pub fn add_file(
                     },
                     options,
                 )?;
-                input.fact.source_anchor = Some(chunk.anchor.clone());
+                let mut anchor = chunk.anchor.clone();
+                anchor.chunk_id = Some(format!("__ordinal__:{ordinal}"));
+                input.fact.source_anchor = Some(anchor);
                 inputs.push(input);
             }
         }
     }
-    let chunks = document.chunks.len();
-    let raw_input = RawSourceInput {
-        uri: uri.clone(),
-        media_type: document.media_type.into(),
-        content: bytes,
-        readable_by: options.audience.clone(),
-        captured_at: options.at,
-        chunks: document.chunks,
-        self_echo_filtered: false,
-    };
-    let lib_id = store.library_id().clone();
-    let (source, extracted) = if store.status()?.embedding_dims == 0 {
-        store.ingest_funnel(
-            &lib_id,
-            &key,
-            &raw_input,
-            &kp_store::FtsOnlyEmbedder,
-            &mut inputs,
-        )?
-    } else {
-        store.ingest_funnel(
-            &lib_id,
-            &key,
-            &raw_input,
-            &kp_store::HashEmbedder,
-            &mut inputs,
-        )?
-    };
+    let chunk_count = document.chunks.len();
+    let (outcome, extracted) = store.upsert_governed_source_with_facts(
+        GovernedSourceInput {
+            external_source_key,
+            uri: uri.clone(),
+            media_type: document.media_type.into(),
+            bytes,
+            chunks: document.chunks,
+            speaker: options.actor.clone(),
+            ingested_by: options.actor.clone(),
+            readable_by: options.audience.clone(),
+            source_scope_id: None,
+            effective_policy: effective_policy.clone(),
+            op_kind: GovernedUpsertMode::AutoSupersede,
+            thread_key: None,
+            reply_to_key: None,
+            captured_at: options.at,
+        },
+        &mut inputs,
+    )?;
+    let source = outcome.source.ok_or(StoreError::NotFound)?;
     Ok(AddedDocument {
         uri,
         source,
         extracted,
-        chunks,
+        chunks: chunk_count,
         needs_ocr: document.needs_ocr,
     })
 }

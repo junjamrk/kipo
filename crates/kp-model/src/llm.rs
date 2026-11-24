@@ -475,6 +475,51 @@ pub enum ModelScopeRef {
     NamedMentions { mentions: Vec<String> },
     /// A relation group anchored on the speaker, referencing a `ConceptKind::Group` concept.
     RelationGroup { group_concept: ModelConceptRef },
+    /// A protected file path, module, or command resource target (e.g. `"src/lib.rs"`, `"migrations/"`).
+    Resource { target: String },
+}
+
+/// Write-time typed CLI guard specification flattened into top-level `Fact.object` keys.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommandGuardSpec {
+    #[serde(default)]
+    pub forbidden_commands: Vec<String>,
+    #[serde(default)]
+    pub allowed_commands: Vec<String>,
+    #[serde(default)]
+    pub required_flags: Vec<String>,
+}
+
+impl CommandGuardSpec {
+    pub fn normalized(&self) -> Self {
+        let clean_vec = |items: &[String]| -> Vec<String> {
+            let mut out = Vec::new();
+            for item in items {
+                let trimmed = item.trim();
+                if !trimmed.is_empty()
+                    && !out.iter().any(|x: &String| x.eq_ignore_ascii_case(trimmed))
+                {
+                    out.push(trimmed.to_owned());
+                }
+            }
+            out
+        };
+        Self {
+            forbidden_commands: clean_vec(&self.forbidden_commands),
+            allowed_commands: clean_vec(&self.allowed_commands),
+            required_flags: clean_vec(&self.required_flags),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.forbidden_commands.is_empty()
+            && self.allowed_commands.is_empty()
+            && self.required_flags.is_empty()
+    }
+
+    pub fn has_enforced_guard(&self) -> bool {
+        !self.forbidden_commands.is_empty() || !self.required_flags.is_empty()
+    }
 }
 
 /// Ambiguous scope emitted by the model: `kp` always activates `SpeakerSelf` first and stores `broader_candidate`.
@@ -549,6 +594,8 @@ pub struct ModelExtractedAtom {
     pub quote: ModelQuoteAnchor,
     #[serde(default)]
     pub evidence: Option<ModelQuoteAnchor>,
+    #[serde(default)]
+    pub command_guard: Option<CommandGuardSpec>,
     #[serde(default)]
     pub write_op: ModelWriteOp,
 }
@@ -815,6 +862,15 @@ impl ExtractionBatchRequest {
             }
             ModelScopeRef::RelationGroup { group_concept } => {
                 self.validate_concept_ref(group_concept, Some(ConceptKind::Group))
+            }
+            ModelScopeRef::Resource { target } => {
+                if target.trim().is_empty() {
+                    return Err(KpError::invalid(
+                        "scope",
+                        "resource scope requires a nonempty target",
+                    ));
+                }
+                Ok(())
             }
         }
     }

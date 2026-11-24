@@ -142,6 +142,34 @@ pub(crate) struct StoredPublicSourceMeta {
     pub(crate) speaker: Option<String>,
 }
 
+fn stamp_deterministic_fact_anchors(
+    deterministic_facts: &mut [FactInput],
+    source_id: &SourceId,
+    chunks: &[ChunkInput],
+) {
+    for item in deterministic_facts.iter_mut() {
+        let anchor = item
+            .fact
+            .source_anchor
+            .get_or_insert_with(AnchorSpec::default);
+        anchor.source_id = Some(source_id.clone());
+        if let Some(ord_str) = anchor
+            .chunk_id
+            .as_deref()
+            .and_then(|s| s.strip_prefix("__ordinal__:"))
+        {
+            if let Ok(ordinal) = ord_str.parse::<usize>() {
+                anchor.chunk_id = Some(format!("{source_id}-{ordinal}"));
+                if anchor.body_hash.is_none() {
+                    if let Some(ch) = chunks.get(ordinal) {
+                        anchor.body_hash = Some(ContentHash::digest(&ch.body));
+                    }
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn shared_redactor() -> Result<&'static SecretRedactor> {
     static REDACTOR: OnceLock<std::result::Result<SecretRedactor, String>> = OnceLock::new();
     let res = REDACTOR.get_or_init(|| SecretRedactor::new().map_err(|e| e.to_string()));
@@ -1113,7 +1141,7 @@ impl Store {
         } = input;
         let caller = ingested_by.clone();
         let spk = speaker;
-        let (outcome, remembered, _) = self.execute_governed_source_write(
+        let (outcome, remembered, _, _) = self.execute_governed_source_write(
             GovernedWriteCall {
                 caller: &caller,
                 explicit_ingested_by: Some(&ingested_by),
@@ -1233,7 +1261,7 @@ impl Store {
             .filter(|s| !s.is_empty())
             .map(str::to_owned);
 
-        let (gov_out, _, newly_ingested) = self.execute_governed_source_write(
+        let (gov_out, _, span_source_opt, newly_ingested) = self.execute_governed_source_write(
             GovernedWriteCall {
                 caller,
                 explicit_ingested_by: record.ingested_by.as_ref(),
@@ -1256,40 +1284,29 @@ impl Store {
             },
             &mut [],
         )?;
-        let stored_opt = gov_out.source.clone();
-        let source_id_for_outcome = match gov_out.kind {
-            PublicRecordAppliedKind::DuplicateIdempotent if !newly_ingested => {
-                // If already_withdrawn returned synthetic `stored`, `PublicRecordApplyOutcome.source_id` was `None`.
-                if let Some(ref st) = stored_opt {
-                    let exists: bool = self.db.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM raw_sources WHERE source_id = ?1)",
-                        [st.source_id.as_str()],
-                        |r| r.get(0),
-                    )?;
-                    exists.then(|| st.source_id.clone())
-                } else {
-                    None
-                }
-            }
-            _ => stored_opt.as_ref().map(|s| s.source_id.clone()),
-        };
+        let stored_for_subbatch = gov_out.source.clone().or(span_source_opt);
         let pub_outcome = PublicRecordApplyOutcome {
             kind: gov_out.kind,
             external_source_key: gov_out.external_source_key,
-            source_id: source_id_for_outcome,
+            source_id: gov_out.source.map(|s| s.source_id),
             superseded_source_id: gov_out.superseded_source_id,
             affected_facts: gov_out.affected_facts,
             enqueued_job_id: gov_out.enqueued_job_ids.first().cloned(),
             resolved_speaker: gov_out.resolved_speaker,
         };
-        Ok((pub_outcome, stored_opt, newly_ingested))
+        Ok((pub_outcome, stored_for_subbatch, newly_ingested))
     }
 
     fn execute_governed_source_write(
         &mut self,
         call: GovernedWriteCall<'_>,
         deterministic_facts: &mut [FactInput],
-    ) -> Result<(GovernedSourceOutcome, Remembered, bool)> {
+    ) -> Result<(
+        GovernedSourceOutcome,
+        Remembered,
+        Option<StoredSource>,
+        bool,
+    )> {
         let GovernedWriteCall {
             caller,
             explicit_ingested_by,
@@ -1406,6 +1423,7 @@ impl Store {
                         resolved_speaker,
                     },
                     Remembered::default(),
+                    None,
                     false,
                 ));
             }
@@ -1473,6 +1491,7 @@ impl Store {
                     resolved_speaker,
                 },
                 Remembered::default(),
+                None,
                 false,
             ));
         }
@@ -1658,8 +1677,8 @@ impl Store {
                 |r| r.get(0),
             )?;
             if already_withdrawn {
-                let source_id = SourceId::new(base_opaque.as_str())?;
-                if let Some(ref span) = session_span {
+                let span_source = if let Some(ref span) = session_span {
+                    let source_id = SourceId::new(base_opaque.as_str())?;
                     crate::queue::record_session_source_span_tx(
                         &tx,
                         &source_id,
@@ -1669,24 +1688,27 @@ impl Store {
                         span.at,
                     )?;
                     let _ = crate::queue::complete_session_source_span_tx(&tx, &source_id)?;
-                }
-                tx.commit()?;
-                let stored = StoredSource {
-                    source_id,
-                    content_sha256,
-                    git_blob: blob_id,
+                    Some(StoredSource {
+                        source_id,
+                        content_sha256,
+                        git_blob: blob_id,
+                    })
+                } else {
+                    None
                 };
+                tx.commit()?;
                 return Ok((
                     GovernedSourceOutcome {
                         kind: PublicRecordAppliedKind::DuplicateIdempotent,
                         external_source_key,
-                        source: Some(stored),
+                        source: None,
                         superseded_source_id: None,
                         affected_facts: Vec::new(),
                         enqueued_job_ids: Vec::new(),
                         resolved_speaker,
                     },
                     Remembered::default(),
+                    span_source,
                     false,
                 ));
             }
@@ -1806,7 +1828,44 @@ impl Store {
                     )?;
                     let _ = crate::queue::complete_session_source_span_tx(&tx, &existing_sid)?;
                 }
+                let dup_remembered = if caller_owns_target && !deterministic_facts.is_empty() {
+                    let has_active_facts: bool = tx.query_row(
+                        "SELECT EXISTS(
+                            SELECT 1 FROM facts
+                            WHERE status = 'active'
+                              AND json_extract(source_anchor_json, '$.source_id') = ?1
+                         )",
+                        [existing_sid.as_str()],
+                        |r| r.get(0),
+                    )?;
+                    if has_active_facts {
+                        Remembered::default()
+                    } else {
+                        stamp_deterministic_fact_anchors(
+                            deterministic_facts,
+                            &existing_sid,
+                            &chunks,
+                        );
+                        crate::slots::prevalidate_fact_inputs(
+                            &tx,
+                            deterministic_facts,
+                            active_embedder,
+                        )?;
+                        crate::slots::remember_facts_indexed(
+                            &tx,
+                            deterministic_facts,
+                            &self.tokenizer,
+                            active_embedder,
+                        )?
+                    }
+                } else {
+                    Remembered::default()
+                };
                 tx.commit()?;
+                if !dup_remembered.facts.is_empty() || !dup_remembered.superseded.is_empty() {
+                    self.register_entities(deterministic_facts);
+                    self.sync_skills_now()?;
+                }
                 let stored = StoredSource {
                     source_id: existing_sid,
                     content_sha256,
@@ -1822,7 +1881,8 @@ impl Store {
                         enqueued_job_ids,
                         resolved_speaker,
                     },
-                    Remembered::default(),
+                    dup_remembered,
+                    None,
                     false,
                 ));
             } else if !is_auto_supersede {
@@ -1874,12 +1934,7 @@ impl Store {
         guard(&tx, &opaque)?;
         let source_id = SourceId::new(opaque.as_str())?;
 
-        for item in deterministic_facts.iter_mut() {
-            item.fact
-                .source_anchor
-                .get_or_insert_with(AnchorSpec::default)
-                .source_id = Some(source_id.clone());
-        }
+        stamp_deterministic_fact_anchors(deterministic_facts, &source_id, &chunks);
         crate::slots::prevalidate_fact_inputs(&tx, deterministic_facts, active_embedder)?;
 
         let vectors = match prepared_vectors {
@@ -2147,6 +2202,7 @@ impl Store {
                 resolved_speaker,
             },
             remembered,
+            None,
             true,
         ))
     }

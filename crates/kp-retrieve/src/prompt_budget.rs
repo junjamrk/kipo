@@ -80,6 +80,8 @@ pub struct PromptCandidate {
     pub fact_author: Option<ActorId>,
     pub source_label: String,
     pub claim_text: String,
+    #[serde(default)]
+    pub is_untrusted: bool,
     pub score: f64,
     pub pending_ambiguous_question: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -176,6 +178,17 @@ pub fn format_citation_header(
     source_label: &str,
     kp_ref: &str,
 ) -> Result<String> {
+    format_citation_header_with_trust(recorded_at, time_zone, speaker, source_label, kp_ref, false)
+}
+
+pub fn format_citation_header_with_trust(
+    recorded_at: EpochMs,
+    time_zone: &TimeZone,
+    speaker: &ActorId,
+    source_label: &str,
+    kp_ref: &str,
+    is_untrusted: bool,
+) -> Result<String> {
     let redactor = shared_redactor()?;
     let date_str = format_date_iso_in_tz(recorded_at, time_zone);
     let source = sanitize_header_field(&redactor.redact(source_label));
@@ -185,9 +198,15 @@ pub fn format_citation_header(
         source
     };
     let clean_ref = sanitize_header_field(kp_ref);
-    Ok(format!(
-        "[{date_str} · {speaker} @ {source} · kp-ref:{clean_ref}]"
-    ))
+    if is_untrusted {
+        Ok(format!(
+            "[{date_str} · untrusted · {speaker} @ {source} · kp-ref:{clean_ref}]"
+        ))
+    } else {
+        Ok(format!(
+            "[{date_str} · {speaker} @ {source} · kp-ref:{clean_ref}]"
+        ))
+    }
 }
 
 /// Shared single-line citation formatter across `prompt_budget` and `guard`:
@@ -304,12 +323,13 @@ pub fn format_prompt_candidates(
         if cited_premise_refs.contains(&kp_ref) || seen_refs.contains(&kp_ref) {
             continue;
         }
-        let header = format_citation_header(
+        let header = format_citation_header_with_trust(
             cand.recorded_at,
             &config.time_zone,
             &cand.speaker,
             &cand.source_label,
             &kp_ref,
+            cand.is_untrusted,
         )?;
 
         let show_hint = cand.fact_author.as_ref() == Some(viewer);
@@ -361,12 +381,13 @@ pub fn format_prompt_candidates(
             if clean_quote.is_empty() {
                 continue;
             }
-            let prem_header = format_citation_header(
+            let prem_header = format_citation_header_with_trust(
                 prem.recorded_at,
                 &config.time_zone,
                 &prem.speaker,
                 &prem.source_label,
                 &prem_kp_ref,
+                prem.is_untrusted,
             )?;
             let existing_with_block = if current_joined.is_empty() {
                 block_lines.join("\n")
@@ -584,6 +605,7 @@ pub fn retrieve_prompt_context_with_embedder(
                 fact_author: meta.fact_author.clone(),
                 source_label: meta.source_label.clone(),
                 claim_text: meta.claim_text.clone(),
+                is_untrusted: meta.is_untrusted,
                 score,
                 pending_ambiguous_question: meta.pending_ambiguous_question.clone(),
                 supporting_premises: meta.supporting_premises.clone(),
@@ -674,6 +696,7 @@ fn match_active_skill_candidates(
             fact_author: Some(owner.clone()),
             source_label: "local".to_owned(),
             claim_text: summary,
+            is_untrusted: false,
             score,
             pending_ambiguous_question: None,
             supporting_premises: Vec::new(),

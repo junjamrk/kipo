@@ -98,7 +98,11 @@ fn shlex_command_segments_and_git_merge_subcommand_boundaries() -> TestResult {
         "alice",
         &["alice", "bob"],
         "分支规范",
-        json!({"claim_text": "维护窗口禁止执行 git merge 合入主干"}),
+        json!({
+            "claim_text": "维护窗口禁止执行 git merge 合入主干",
+            "forbidden_commands": ["git merge"],
+            "hard_guard": true
+        }),
         Some("维护窗口禁止执行 git merge 合入主干"),
     )?;
     store.insert_fact(&merge_rule)?;
@@ -168,7 +172,10 @@ fn path_component_boundaries_match_src_lib_rs_without_matching_stdlib_rs() -> Te
         "alice",
         &["alice"],
         "入口文件保护",
-        json!({"claim_text": "未经评审不要修改 lib.rs"}),
+        json!({
+            "claim_text": "未经评审不要修改 lib.rs",
+            "file_path": "lib.rs"
+        }),
         Some("未经评审不要修改 lib.rs"),
     )?;
     store.insert_fact(&lib_guard)?;
@@ -323,6 +330,7 @@ fn collision_warning_premises_relation_group_code_anchors_and_untrusted_isolatio
         json!({
             "claim_text": "切换窗口内严禁变更表结构",
             "action_concept_id": cpt_migrate.id,
+            "forbidden_commands": ["sqlx migrate"],
         }),
         Some("切换窗口内严禁变更表结构"),
     )?;
@@ -563,7 +571,13 @@ fn cross_language_prohibitive_and_declarative_required_flag_guards_block_bad_inv
         "alice",
         &["alice"],
         "python-packaging",
-        json!({"summary": "严禁使用 pip install，必须改用 uv pip install"}),
+        json!({
+            "summary": "严禁使用 pip install，必须改用 uv pip install",
+            "hard_guard": true,
+            "forbidden_commands": ["pip install"],
+            "allowed_commands": ["uv pip install"],
+            "required_flags": []
+        }),
         Some("严禁使用 `pip install`，必须改用 `uv pip install`"),
     )?;
     let npm_rule = make_base_fact(
@@ -572,7 +586,13 @@ fn cross_language_prohibitive_and_declarative_required_flag_guards_block_bad_inv
         "alice",
         &["alice"],
         "js-packaging",
-        json!({"summary": "Use pnpm install instead of npm install"}),
+        json!({
+            "summary": "Use pnpm install instead of npm install",
+            "hard_guard": true,
+            "forbidden_commands": ["npm install"],
+            "allowed_commands": ["pnpm install"],
+            "required_flags": []
+        }),
         Some("Use `pnpm install` instead of `npm install`"),
     )?;
     let pytest_flag_rule = make_base_fact(
@@ -588,7 +608,35 @@ fn cross_language_prohibitive_and_declarative_required_flag_guards_block_bad_inv
         }),
         Some("Never run pytest without -m marker filter"),
     )?;
-    for f in [pip_rule.clone(), npm_rule.clone(), pytest_flag_rule.clone()] {
+    let prisma_flag_rule = make_base_fact(
+        new_fact_id()?,
+        FactKind::Constraint,
+        "alice",
+        &["alice"],
+        "prisma-schema-gate",
+        json!({
+            "summary": "Require --schema on prisma migrate deploy",
+            "command": "prisma migrate deploy",
+            "required_flags": ["--schema"]
+        }),
+        Some("Always pass --schema to prisma migrate deploy"),
+    )?;
+    let prose_only_rule = make_base_fact(
+        new_fact_id()?,
+        FactKind::Constraint,
+        "alice",
+        &["alice"],
+        "untagged-prose-constraint",
+        json!({"summary": "严禁使用 cargo publish 发布未签名包"}),
+        Some("严禁使用 `cargo publish` 发布未签名包"),
+    )?;
+    for f in [
+        pip_rule.clone(),
+        npm_rule.clone(),
+        pytest_flag_rule.clone(),
+        prisma_flag_rule.clone(),
+        prose_only_rule,
+    ] {
         store.remember(&[FactInput {
             fact: f,
             entities: BTreeSet::new(),
@@ -631,6 +679,17 @@ fn cross_language_prohibitive_and_declarative_required_flag_guards_block_bad_inv
     );
     assert!(!check_cmd("pytest -m 'not live' tests/unit")?.is_blocked());
 
+    assert_eq!(
+        check_cmd("prisma migrate deploy")?.matched_fact_ids(),
+        vec![prisma_flag_rule.id]
+    );
+    assert!(!check_cmd("prisma migrate deploy --schema ./prisma/schema.prisma")?.is_blocked());
+
+    assert!(
+        !check_cmd("cargo publish")?.is_blocked(),
+        "prose-only Constraint without typed CommandGuardSpec must not scrape CLI strings at runtime"
+    );
+
     Ok(())
 }
 
@@ -654,8 +713,6 @@ fn external_speaker_constraint_with_source_scope_never_blocks_while_owner_and_ma
         synced_at: NOV_19_2026_UTC,
     })?;
 
-    // Unconfirmed external participant `ext.github.stranger` with `source_scope_id: Some(...)`
-    // (even if stamped `ToolOrModelVerified` and carrying explicit `forbidden_commands`) MUST NOT block!
     let mut stranger_rule = make_base_fact(
         new_fact_id()?,
         FactKind::Constraint,
@@ -692,7 +749,6 @@ fn external_speaker_constraint_with_source_scope_never_blocks_while_owner_and_ma
         "external speaker Constraint with source_scope_id must NEVER block PreToolUse"
     );
 
-    // Owner and Maintainer Constraints in the same `source_scope_id` DO block!
     let mut owner_rule = make_base_fact(
         new_fact_id()?,
         FactKind::Constraint,

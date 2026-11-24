@@ -51,12 +51,10 @@ cat > "$PROJECT/notes/billing.md" <<'MD'
 # 结算规则
 fact: kp.code.api_contract = 结算前检查当前版本的请求字段。
 MD
-cat > "$PROJECT/notes/meeting.vtt" <<'VTT'
-WEBVTT
-
-00:01.250 --> 00:02.750
-杭州团建前检查天气预警。
-VTT
+cat > "$PROJECT/notes/ops.html" <<'HTML'
+<!doctype html>
+<html><body><main><h1>团建检查单</h1><p>杭州团建前检查天气预警。</p></main></body></html>
+HTML
 kp add "$PROJECT" --extract --path "$ALICE" --json
 
 F_API=$(kp remember --subject settle_invoice \
@@ -69,7 +67,7 @@ kp dead-end --subject settle_invoice --hypothesis '失败后盲目重试' \
   --file src/billing.rs --symbol settle_invoice --path "$ALICE" --json
 ```
 
-`add --extract` 同时保存 L0 原文与可识别的 L1 事实。支持 Markdown、源代码、PDF、Office 文档和 VTT/SRT；可直接将这些文件放入目录后导入。搜索结果保留行号、符号、页码或毫秒时间锚点。图片型 PDF 返回 `needs_ocr: true`，不会自动执行 OCR。
+`add --extract` 同时保存 L0 原文与可识别的 L1 事实。支持 Markdown、源代码、PDF、Office 文档、HTML 和静态网页 URL；可直接将这些文件放入目录后导入。搜索结果保留行号、符号、表格单元格或页码锚点。扫描件或乱码字库 PDF 页面返回 `needs_ocr: true` 并自动隔离乱码，不会静默写入脏文本。
 
 `remember` 适合显式事实；`dead-end` 记录已验证失败的尝试。未指定 audience 时只对当前 actor 可见。`--audience alice,bob` 指定成员，`--audience '*'` 允许库内所有成员；原始材料对应的参数是 `add --readable-by`。
 

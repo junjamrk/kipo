@@ -137,7 +137,16 @@ fn add_directory_routes_all_formats_and_search_returns_original_coordinates() ->
         ],
     )?;
     let added = run(&library, &["add", input.to_str().ok_or("input path")?])?;
-    assert_eq!(added.as_array().ok_or("array")?.len(), 11);
+    assert_eq!(added.as_array().ok_or("array")?.len(), 9);
+    for unsupported in ["talk.vtt", "talk.srt"] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_kp"))
+            .env("KP_OFFLINE", "1")
+            .arg("--path")
+            .arg(&library)
+            .args(["add", input.join(unsupported).to_str().ok_or("sub path")?])
+            .output()?;
+        assert!(!out.status.success());
+    }
     let ocr = added
         .as_array()
         .ok_or("array")?
@@ -160,18 +169,11 @@ fn add_directory_routes_all_formats_and_search_returns_original_coordinates() ->
     let second = anchor(&library, "Secondpdfanchor", "text.pdf")?;
     assert_eq!(first["page"], 1);
     assert_eq!(second["page"], 2);
-    let vtt = anchor(&library, "Vttanchor", "talk.vtt")?;
-    assert_eq!(vtt["start_ms"], 1250);
-    assert_eq!(vtt["end_ms"], 2750);
-    assert_eq!(vtt["start_line"], 3);
-    let srt = anchor(&library, "Srtanchor", "talk.srt")?;
-    assert_eq!(srt["start_ms"], 3500);
-    assert_eq!(srt["end_ms"], 4250);
     assert_eq!(anchor(&library, "Docxanchor", "word.docx")?["paragraph"], 1);
     assert_eq!(anchor(&library, "Pptxanchor", "slides.pptx")?["slide"], 1);
     let xlsx = anchor(&library, "Xlsxanchor", "book.xlsx")?;
     assert_eq!(xlsx["sheet"], "Payments");
-    assert_eq!(xlsx["cell"], "B3");
+    assert_eq!(xlsx["cell"], "A3:C3");
     assert_eq!(anchor(&library, "Csvanchor", "table.csv")?["start_line"], 1);
     Ok(())
 }

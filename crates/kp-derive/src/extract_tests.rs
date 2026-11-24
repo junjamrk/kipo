@@ -330,3 +330,47 @@ fn source_code_and_non_markdown_uris_skip_directive_lookalikes() -> Result<()> {
         .is_empty());
     Ok(())
 }
+
+#[test]
+fn bracket_command_guard_tags_parse_deterministically_without_polarity_guessing() -> Result<()> {
+    let md = concat!(
+        "# Python & Prisma Rules\n",
+        "- constraint: [forbid: `pip install`, `pip3 install`] [allow: `uv pip install`] Use [[uv]] for dependency installation\n",
+        "- decision: Require explicit schema path [forbid: prisma migrate deploy] [require_flag: `--schema`]\n",
+        "- constraint: Always run `cargo clippy` before opening a PR\n",
+    );
+    let facts = RuleExtractor.extract(md, "rules.md")?;
+    assert_eq!(facts.len(), 3);
+
+    assert_eq!(facts[0].subject, "Python & Prisma Rules");
+    assert_eq!(facts[0].kind, FactKind::Constraint);
+    assert!(facts[0].entities.contains("uv"));
+    assert_eq!(
+        facts[0].value,
+        serde_json::json!({
+            "summary": "Use [[uv]] for dependency installation",
+            "hard_guard": true,
+            "forbidden_commands": ["pip install", "pip3 install"],
+            "allowed_commands": ["uv pip install"],
+            "required_flags": [],
+        })
+    );
+
+    assert_eq!(facts[1].kind, FactKind::Decision);
+    assert_eq!(
+        facts[1].value,
+        serde_json::json!({
+            "summary": "Require explicit schema path",
+            "hard_guard": true,
+            "forbidden_commands": ["prisma migrate deploy"],
+            "allowed_commands": [],
+            "required_flags": ["--schema"],
+        })
+    );
+
+    assert_eq!(
+        facts[2].value,
+        serde_json::json!("Always run `cargo clippy` before opening a PR")
+    );
+    Ok(())
+}

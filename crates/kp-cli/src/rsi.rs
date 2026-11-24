@@ -323,6 +323,9 @@ async fn run_dream(
             report.facts_distilled += drain_out["created_facts"]
                 .as_array()
                 .map_or(0, std::vec::Vec::len);
+            report.guards_backfilled +=
+                usize::try_from(drain_out["guards_backfilled"].as_u64().unwrap_or(0)).unwrap_or(0);
+            report.untagged_guard_candidates = store.untagged_guard_candidate_count()?;
             Ok(report)
         }
         None if model.is_none() && !allow_cloud => {
@@ -346,6 +349,9 @@ async fn run_dream(
             report.facts_distilled += drain_out["created_facts"]
                 .as_array()
                 .map_or(0, std::vec::Vec::len);
+            report.guards_backfilled +=
+                usize::try_from(drain_out["guards_backfilled"].as_u64().unwrap_or(0)).unwrap_or(0);
+            report.untagged_guard_candidates = store.untagged_guard_candidate_count()?;
             Ok(report)
         }
         _ => {

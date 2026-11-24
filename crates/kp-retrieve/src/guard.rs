@@ -1,9 +1,8 @@
 use std::path::{Component, Path, PathBuf};
 
 use kp_model::{
-    fact_action_concept_id, system_time_zone, ActorId, CommunityConcept, ConceptKind, EpochMs,
-    Fact, FactAccess, FactId, FactKind, GovernedScope, MemberRole, MembershipRelation, TimeZone,
-    TrustTier,
+    system_time_zone, ActorId, CommunityConcept, EpochMs, Fact, FactAccess, FactId, FactKind,
+    GovernedScope, MemberRole, MembershipRelation, TimeZone, TrustTier,
 };
 use kp_store::{CodeLocus, Store, VisibleGuardCandidate, VisibleGuardPremise};
 use serde::{Deserialize, Serialize};
@@ -700,7 +699,10 @@ fn is_hard_constraint(fact: &Fact) -> bool {
     ) {
         return false;
     }
-    if fact.object.get("hard_guard").and_then(Value::as_bool) == Some(true)
+    matches!(
+        fact.governed_scope,
+        Some(GovernedScope::Resource { ref target }) if !target.trim().is_empty()
+    ) || fact.object.get("hard_guard").and_then(Value::as_bool) == Some(true)
         || fact.object.get("hard").and_then(Value::as_bool) == Some(true)
         || fact
             .object
@@ -710,6 +712,11 @@ fn is_hard_constraint(fact: &Fact) -> bool {
         || fact
             .object
             .get("command")
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.trim().is_empty())
+        || fact
+            .object
+            .get("command_pattern")
             .and_then(Value::as_str)
             .is_some_and(|s| !s.trim().is_empty())
         || fact
@@ -727,46 +734,11 @@ fn is_hard_constraint(fact: &Fact) -> bool {
             .get("file_path")
             .and_then(Value::as_str)
             .is_some_and(|s| !s.trim().is_empty())
-    {
-        return true;
-    }
-    if fact.kind == FactKind::ClosedNegative {
-        return false;
-    }
-    if fact.governed_scope.is_some() || fact_action_concept_id(fact).is_some() {
-        return true;
-    }
-    let pred = fact.predicate.to_lowercase();
-    if pred.contains("guard") || pred.contains("policy") {
-        return true;
-    }
-    let text = format!(
-        "{} {} {}",
-        fact.subject,
-        fact.object,
-        fact.source_anchor
-            .as_ref()
-            .and_then(|a| a.verbatim_quote.as_deref())
-            .unwrap_or("")
-    )
-    .to_lowercase();
-    [
-        "禁止",
-        "严禁",
-        "绝不",
-        "不得",
-        "不要",
-        "暂停",
-        "只允许",
-        "must not",
-        "do not",
-        "don't",
-        "never ",
-        "forbidden",
-        "instead of ",
-    ]
-    .iter()
-    .any(|kw| text.contains(kw))
+        || fact
+            .object
+            .get("resource")
+            .and_then(Value::as_str)
+            .is_some_and(|s| !s.trim().is_empty())
 }
 
 fn guard_candidate_matches(
@@ -779,7 +751,6 @@ fn guard_candidate_matches(
     if single_fact_matches_targets(
         &cand.fact,
         &cand.code_loci,
-        &cand.linked_concepts,
         cwd,
         file_targets,
         raw_commands,
@@ -802,7 +773,6 @@ fn guard_candidate_matches(
             ) && single_fact_matches_targets(
                 &prem.fact,
                 &prem.code_loci,
-                &cand.linked_concepts,
                 cwd,
                 file_targets,
                 raw_commands,
@@ -819,13 +789,11 @@ fn guard_candidate_matches(
 fn single_fact_matches_targets(
     fact: &Fact,
     code_loci: &[CodeLocus],
-    linked_concepts: &[CommunityConcept],
     cwd: Option<&str>,
     file_targets: &[String],
     raw_commands: &[String],
     shell_segments: &[Vec<String>],
 ) -> bool {
-    // `code_anchors`: `scoped -> anchored` strictly respected.
     if !code_loci.is_empty() {
         return code_loci.iter().any(|locus| {
             anchor_matches_targets(locus, cwd, file_targets, raw_commands, shell_segments)
@@ -875,223 +843,51 @@ fn single_fact_matches_targets(
         }
     }
 
-    let explicit_allowed = json_string_list(&fact.object, "allowed_commands");
+    if shell_segments.is_empty() {
+        return false;
+    }
+
+    let allowed_commands = json_string_list(&fact.object, "allowed_commands");
     let required_flags = json_string_list(&fact.object, "required_flags");
-    let mut explicit_forbidden = json_string_list(&fact.object, "forbidden_commands");
-    if let Some(cmd_pat) = fact.object.get("command").and_then(Value::as_str) {
-        let cmd_pat = cmd_pat.trim();
-        if !cmd_pat.is_empty() {
-            explicit_forbidden.push(cmd_pat.to_owned());
+    let mut guarded_commands = json_string_list(&fact.object, "forbidden_commands");
+    for key in ["command", "command_pattern"] {
+        if let Some(cmd_pat) = fact.object.get(key).and_then(Value::as_str) {
+            let cmd_pat = cmd_pat.trim();
+            if !cmd_pat.is_empty() && !guarded_commands.iter().any(|c| c == cmd_pat) {
+                guarded_commands.push(cmd_pat.to_owned());
+            }
         }
     }
-    if !explicit_forbidden.is_empty() {
+
+    if !guarded_commands.is_empty() {
         for seg in shell_segments {
-            if explicit_allowed
+            if allowed_commands
                 .iter()
                 .any(|allow| segment_head_matches_pattern(seg, allow))
             {
                 continue;
             }
-            if explicit_forbidden
+            if guarded_commands
                 .iter()
-                .any(|pat| command_pattern_matches_single_segment(pat, seg))
+                .any(|pat| segment_head_matches_pattern(seg, pat))
                 && (required_flags.is_empty()
                     || !segment_satisfies_required_flags(seg, &required_flags))
             {
                 return true;
             }
         }
-        if !required_flags.is_empty() {
-            return false;
-        }
-    }
-
-    let corpus = collect_fact_policy_corpus(fact, linked_concepts);
-    let corpus_lower = corpus.to_lowercase();
-
-    // 1. Protected file / relative path mentions inside policy text matched strictly on path-component boundaries
-    //    (so `lib.rs` matches `src/lib.rs` and `lib.rs`, NEVER `src/stdlib.rs`).
-    for file_tok in extract_protected_file_tokens(&corpus) {
-        if any_file_or_segment_matches_path(&file_tok, cwd, file_targets, shell_segments) {
-            return true;
-        }
-    }
-
-    if shell_segments.is_empty() {
         return false;
     }
 
-    let inferred_req_flags = extract_without_required_flags(&corpus);
-    let filtered_storage: Vec<Vec<String>>;
-    let active_segments: &[Vec<String>] = if inferred_req_flags.is_empty() {
-        shell_segments
-    } else {
-        filtered_storage = shell_segments
-            .iter()
-            .filter(|seg| !segment_satisfies_required_flags(seg, &inferred_req_flags))
-            .cloned()
-            .collect();
-        if filtered_storage.is_empty() {
-            return false;
-        }
-        &filtered_storage
-    };
-
-    if matches_nl_prohibitive_cli_rule(&corpus, &explicit_allowed, active_segments) {
-        return true;
-    }
-
-    // 2. Explicit multi-token CLI command phrases mentioned in policy text.
-    const EXPLICIT_CMD_PHRASES: &[&[&str]] = &[
-        &["gh", "pr", "merge"],
-        &["git", "merge"],
-        &["git", "push", "--force"],
-        &["git", "push", "-f"],
-        &["git", "reset", "--hard"],
-        &["git", "clean", "-f"],
-        &["rm", "-rf"],
-        &["cargo", "publish"],
-        &["npm", "publish"],
-        &["kubectl", "apply"],
-        &["kubectl", "delete"],
-        &["terraform", "destroy"],
-        &["sqlx", "migrate"],
-        &["prisma", "migrate"],
-        &["alembic", "upgrade"],
-        &["helm", "upgrade"],
-    ];
-    for seq in EXPLICIT_CMD_PHRASES {
-        let phrase = seq.join(" ");
-        if corpus_lower.contains(&phrase)
-            && active_segments
+    if !required_flags.is_empty() && !allowed_commands.is_empty() {
+        for seg in shell_segments {
+            if allowed_commands
                 .iter()
-                .any(|seg| segment_matches_cli_sequence(seg, seq))
-        {
-            return true;
-        }
-    }
-
-    // 3. Bilingual developer CLI verb & `CommunityConcept` (`action_concept_id`) alignment.
-    let has_git_push_action_concept = linked_concepts
-        .iter()
-        .filter(|c| c.kind == ConceptKind::Action)
-        .any(|c| {
-            let lbl = c.canonical_label.to_lowercase();
-            (lbl.contains("推送") && !lbl.contains("强推") && !lbl.contains("强制"))
-                || (lbl.contains("push") && !lbl.contains("force"))
-        });
-
-    let has_deploy_action_concept = linked_concepts
-        .iter()
-        .filter(|c| c.kind == ConceptKind::Action)
-        .any(|c| {
-            let lbl = c.canonical_label.to_lowercase();
-            lbl.contains("deploy")
-                || lbl.contains("rollout")
-                || lbl.contains("部署")
-                || lbl.contains("上线")
-        });
-
-    let has_publish_action_concept = linked_concepts
-        .iter()
-        .filter(|c| c.kind == ConceptKind::Action)
-        .any(|c| {
-            let lbl = c.canonical_label.to_lowercase();
-            lbl.contains("publish") || lbl.contains("release") || lbl.contains("发版")
-        });
-
-    let has_migrate_action_concept = linked_concepts
-        .iter()
-        .filter(|c| c.kind == ConceptKind::Action)
-        .any(|c| {
-            let lbl = c.canonical_label.to_lowercase();
-            lbl.contains("migrate") || lbl.contains("migration") || lbl.contains("迁移")
-        });
-
-    let mentions_force_push = [
-        "force push",
-        "force-push",
-        "push --force",
-        "push -f",
-        "强推",
-        "强制推送",
-    ]
-    .iter()
-    .any(|kw| corpus_lower.contains(kw))
-        || ((corpus_lower.contains("push") || corpus_lower.contains("推送"))
-            && (corpus_lower.contains("force") || corpus_lower.contains("强制")));
-
-    for seg in active_segments {
-        let argv = strip_leading_env_and_wrappers(seg);
-        if argv.is_empty() {
-            continue;
-        }
-        if is_merge_segment(argv)
-            && ["合并", "合入", "merge"]
-                .iter()
-                .any(|kw| corpus_lower.contains(kw))
-        {
-            return true;
-        }
-        if is_force_push_segment(argv) && mentions_force_push {
-            return true;
-        }
-        if is_git_push_segment(argv)
-            && !mentions_force_push
-            && (has_git_push_action_concept
-                || [
-                    "禁止推送",
-                    "暂停推送",
-                    "不要推送",
-                    "停止推送",
-                    "不得推送",
-                    "no push",
-                    "do not push",
-                    "don't push",
-                ]
-                .iter()
-                .any(|kw| corpus_lower.contains(kw)))
-        {
-            return true;
-        }
-        if is_migrate_segment(argv)
-            && (has_migrate_action_concept
-                || ["migrate", "migration", "迁移"]
-                    .iter()
-                    .any(|kw| corpus_lower.contains(kw)))
-        {
-            return true;
-        }
-        if is_deploy_segment(argv)
-            && (has_deploy_action_concept
-                || ["deploy", "rollout", "部署", "上线"]
-                    .iter()
-                    .any(|kw| corpus_lower.contains(kw)))
-        {
-            return true;
-        }
-        if is_publish_segment(argv)
-            && (has_publish_action_concept
-                || ["publish", "release", "发版"]
-                    .iter()
-                    .any(|kw| corpus_lower.contains(kw)))
-        {
-            return true;
-        }
-        if is_destructive_segment(argv)
-            && [
-                "reset --hard",
-                "clean -f",
-                "rm -rf",
-                "删除",
-                "drop table",
-                "truncate",
-                "destroy",
-            ]
-            .iter()
-            .any(|kw| corpus_lower.contains(kw))
-        {
-            return true;
+                .any(|pat| segment_head_matches_pattern(seg, pat))
+                && !segment_satisfies_required_flags(seg, &required_flags)
+            {
+                return true;
+            }
         }
     }
 
@@ -1105,7 +901,6 @@ fn binary_basename(tok: &str) -> &str {
         .unwrap_or(tok)
 }
 
-/// Extracts the git subcommand from `argv`, skipping global git options (`-C <dir>`, `-c <k=v>`, etc.).
 fn git_subcommand(argv: &[String]) -> Option<&str> {
     let bin = binary_basename(argv.first()?.as_str());
     if bin != "git" {
@@ -1130,60 +925,13 @@ fn git_subcommand(argv: &[String]) -> Option<&str> {
     None
 }
 
-fn segment_matches_cli_sequence(seg: &[String], seq: &[&str]) -> bool {
-    let argv = strip_leading_env_and_wrappers(seg);
-    if argv.is_empty() || seq.is_empty() {
-        return false;
-    }
-    if seq[0] == "git" && seq.len() >= 2 {
-        if git_subcommand(argv) != Some(seq[1]) {
-            return false;
-        }
-        return seq[2..]
-            .iter()
-            .all(|flag| argv[1..].iter().any(|a| a == flag));
-    }
-    if argv.len() < seq.len() {
-        return false;
-    }
-    if binary_basename(&argv[0]) == seq[0]
-        && argv[1..seq.len()]
-            .iter()
-            .zip(&seq[1..])
-            .all(|(a, b)| a == b)
-    {
-        return true;
-    }
-    argv.windows(seq.len())
-        .any(|win| win.iter().zip(seq).all(|(a, b)| a == b))
-}
-
 fn command_pattern_matches_segments(cmd_pat: &str, shell_segments: &[Vec<String>]) -> bool {
     shell_segments
         .iter()
-        .any(|seg| command_pattern_matches_single_segment(cmd_pat, seg))
+        .any(|seg| segment_head_matches_pattern(seg, cmd_pat))
 }
 
-fn command_pattern_matches_single_segment(cmd_pat: &str, seg: &[String]) -> bool {
-    let pat_segs = split_shell_command_segments(cmd_pat);
-    let Some(first) = pat_segs.first() else {
-        return false;
-    };
-    let lowered: Vec<String> = first.iter().map(|s| s.to_lowercase()).collect();
-    let refs: Vec<&str> = lowered.iter().map(String::as_str).collect();
-    segment_matches_cli_sequence(seg, &refs)
-}
-
-fn segment_head_matches_pattern(seg: &[String], cmd_pat: &str) -> bool {
-    let pat_segs = split_shell_command_segments(cmd_pat);
-    let Some(first) = pat_segs.first() else {
-        return false;
-    };
-    let pat_argv: Vec<String> = strip_leading_env_and_wrappers(first)
-        .iter()
-        .map(|s| s.to_lowercase())
-        .collect();
-    let argv = strip_leading_env_and_wrappers(seg);
+fn argv_head_matches_pattern(argv: &[String], pat_argv: &[String]) -> bool {
     if argv.is_empty() || pat_argv.is_empty() {
         return false;
     }
@@ -1191,9 +939,11 @@ fn segment_head_matches_pattern(seg: &[String], cmd_pat: &str) -> bool {
         if git_subcommand(argv) != Some(pat_argv[1].as_str()) {
             return false;
         }
-        return pat_argv[2..]
-            .iter()
-            .all(|flag| argv[1..].iter().any(|a| a == flag));
+        return pat_argv[2..].iter().all(|flag| {
+            argv[1..]
+                .iter()
+                .any(|a| a == flag || a.starts_with(&format!("{flag}=")))
+        });
     }
     if binary_basename(&argv[0]) != binary_basename(&pat_argv[0]) || argv.len() < pat_argv.len() {
         return false;
@@ -1215,6 +965,48 @@ fn segment_head_matches_pattern(seg: &[String], cmd_pat: &str) -> bool {
         }
     }
     true
+}
+
+fn segment_head_matches_pattern(seg: &[String], cmd_pat: &str) -> bool {
+    let pat_segs = split_shell_command_segments(cmd_pat);
+    let Some(first) = pat_segs.first() else {
+        return false;
+    };
+    let pat_argv: Vec<String> = strip_leading_env_and_wrappers(first)
+        .iter()
+        .map(|s| s.to_lowercase())
+        .collect();
+    let argv = strip_leading_env_and_wrappers(seg);
+    if argv.is_empty() || pat_argv.is_empty() {
+        return false;
+    }
+    if argv_head_matches_pattern(argv, &pat_argv) {
+        return true;
+    }
+    if binary_basename(&argv[0]) == "git" {
+        return false;
+    }
+    let mut i = 1usize;
+    while i < argv.len() {
+        let tok = argv[i].as_str();
+        let inline = if matches!(tok, "-c" | "-e" | "--command" | "--eval" | "-cmd") {
+            i += 1;
+            argv.get(i).map(String::as_str)
+        } else {
+            tok.strip_prefix("--command=")
+                .or_else(|| tok.strip_prefix("--eval="))
+        };
+        if let Some(script) = inline {
+            for inner in split_shell_command_segments_inner(script, false) {
+                let lowered: Vec<String> = inner.into_iter().map(|t| t.to_lowercase()).collect();
+                if argv_head_matches_pattern(strip_leading_env_and_wrappers(&lowered), &pat_argv) {
+                    return true;
+                }
+            }
+        }
+        i += 1;
+    }
+    false
 }
 
 fn segment_satisfies_required_flags(seg: &[String], required_flags: &[String]) -> bool {
@@ -1240,403 +1032,6 @@ fn json_string_list(obj: &Value, key: &str) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-fn extract_without_required_flags(corpus: &str) -> Vec<String> {
-    const WITHOUT_CUES: &[&str] = &["without ", "不带", "未带", "未指定", "缺少", "always pass "];
-    let lower = corpus.to_lowercase();
-    let mut flags = Vec::new();
-    for cue in WITHOUT_CUES {
-        let mut search_from = 0usize;
-        while let Some(rel) = lower[search_from..].find(cue) {
-            let after_idx = search_from + rel + cue.len();
-            search_from = after_idx;
-            let tail = corpus[after_idx..].trim_start_matches(|c: char| {
-                c.is_whitespace() || matches!(c, '`' | '\'' | '"' | '「')
-            });
-            let tok = tail
-                .split(|c: char| {
-                    c.is_whitespace()
-                        || matches!(
-                            c,
-                            '`' | '\'' | '"' | '」' | ',' | '.' | ';' | ')' | '，' | '。' | '='
-                        )
-                })
-                .next()
-                .unwrap_or("");
-            if tok.starts_with('-')
-                && tok.len() >= 2
-                && tok[1..]
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-                && !flags.iter().any(|f: &String| f.eq_ignore_ascii_case(tok))
-            {
-                flags.push(tok.to_lowercase());
-            }
-        }
-    }
-    flags
-}
-
-fn is_likely_cli_command_span(span: &str) -> bool {
-    let words: Vec<&str> = span.split_whitespace().collect();
-    let Some(&first) = words.first() else {
-        return false;
-    };
-    if first.starts_with('-') || first.contains("://") {
-        return false;
-    }
-    let bin = binary_basename(first).to_ascii_lowercase();
-    const KNOWN_BINS: &[&str] = &[
-        "npm",
-        "pnpm",
-        "yarn",
-        "bun",
-        "npx",
-        "pip",
-        "pip3",
-        "uv",
-        "poetry",
-        "pytest",
-        "python",
-        "python3",
-        "cargo",
-        "rustup",
-        "rustc",
-        "go",
-        "git",
-        "gh",
-        "docker",
-        "podman",
-        "kubectl",
-        "helm",
-        "terraform",
-        "sqlx",
-        "prisma",
-        "alembic",
-        "diesel",
-        "knex",
-        "flyway",
-        "make",
-        "just",
-        "bazel",
-        "gradle",
-        "mvn",
-        "curl",
-        "wget",
-        "rm",
-        "chmod",
-        "chown",
-        "psql",
-        "mysql",
-        "redis-cli",
-        "playwright",
-        "vitest",
-        "jest",
-    ];
-    if KNOWN_BINS.contains(&bin.as_str()) {
-        return words.len() >= 2 || matches!(bin.as_str(), "yarn" | "npm" | "pip" | "pip3");
-    }
-    words.len() >= 2
-        && bin
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
-        && words[1..]
-            .iter()
-            .all(|w| w.bytes().all(|b| b.is_ascii_graphic()))
-        && words[1..].iter().any(|w| {
-            w.starts_with('-')
-                || w.bytes()
-                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
-        })
-}
-
-fn extract_backticked_commands(clause: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = clause;
-    while let Some(start) = rest.find('`') {
-        let after = &rest[start + 1..];
-        let Some(end) = after.find('`') else {
-            break;
-        };
-        let inside = after[..end].trim();
-        if is_likely_cli_command_span(inside) {
-            out.push(inside.to_owned());
-        }
-        rest = &after[end + 1..];
-    }
-    out
-}
-
-fn extract_inline_ascii_command_after_cue(clause: &str, cues: &[&str]) -> Vec<String> {
-    let lower = clause.to_lowercase();
-    let mut out = Vec::new();
-    for cue in cues {
-        let Some(pos) = lower.find(cue) else {
-            continue;
-        };
-        let tail = clause[pos + cue.len()..].trim_start_matches(|c: char| {
-            c.is_whitespace() || matches!(c, ':' | '：' | '"' | '\'' | '`')
-        });
-        let ascii_tokens: Vec<&str> = tail
-            .split_whitespace()
-            .map(|t| {
-                t.trim_matches(|c: char| {
-                    matches!(
-                        c,
-                        '`' | '\'' | '"' | ',' | '.' | ';' | ')' | '(' | '，' | '。' | '；'
-                    )
-                })
-            })
-            .take_while(|t| {
-                !t.is_empty()
-                    && t.is_ascii()
-                    && !matches!(
-                        t.to_ascii_lowercase().as_str(),
-                        "in" | "on"
-                            | "for"
-                            | "instead"
-                            | "directly"
-                            | "without"
-                            | "or"
-                            | "and"
-                            | "to"
-                            | "when"
-                            | "unless"
-                            | "please"
-                            | "because"
-                    )
-            })
-            .take(5)
-            .collect();
-        let joined = ascii_tokens.join(" ");
-        if is_likely_cli_command_span(&joined) {
-            out.push(joined);
-        }
-    }
-    out
-}
-
-fn matches_nl_prohibitive_cli_rule(
-    corpus: &str,
-    explicit_allowed: &[String],
-    active_segments: &[Vec<String>],
-) -> bool {
-    let (nl_prohibited, nl_allowed) = extract_prohibited_and_allowed_cli_phrases(corpus);
-    if nl_prohibited.is_empty() {
-        return false;
-    }
-    for seg in active_segments {
-        if explicit_allowed
-            .iter()
-            .chain(nl_allowed.iter())
-            .any(|allow| segment_head_matches_pattern(seg, allow))
-        {
-            continue;
-        }
-        if nl_prohibited
-            .iter()
-            .any(|forbid| segment_head_matches_pattern(seg, forbid))
-        {
-            return true;
-        }
-    }
-    false
-}
-
-fn extract_prohibited_and_allowed_cli_phrases(corpus: &str) -> (Vec<String>, Vec<String>) {
-    const PROHIBIT_CUES: &[&str] = &[
-        "严禁使用",
-        "禁止使用",
-        "严禁执行",
-        "禁止执行",
-        "严禁运行",
-        "禁止运行",
-        "不要使用",
-        "不要用",
-        "别用",
-        "不要执行",
-        "不要运行",
-        "不得使用",
-        "不得执行",
-        "切勿使用",
-        "切勿执行",
-        "严禁",
-        "禁止",
-        "绝不",
-        "do not use",
-        "don't use",
-        "do not run",
-        "don't run",
-        "never run",
-        "never use",
-        "must not run",
-        "must not use",
-        "forbid ",
-    ];
-    const ALLOW_CUES: &[&str] = &[
-        "必须改用",
-        "请改用",
-        "统一改用",
-        "改用",
-        "必须统一使用",
-        "统一使用",
-        "必须使用",
-        "请使用",
-        "应该使用",
-        "应当使用",
-        "switch to",
-        "use ",
-        "prefer ",
-        "always run",
-        "always use",
-    ];
-
-    let mut prohibited = Vec::new();
-    let mut allowed = Vec::new();
-
-    for raw_clause in corpus.split(['\n', '。', '；', ';', '，', ',']) {
-        let clause = raw_clause.trim();
-        if clause.is_empty() {
-            continue;
-        }
-        let lower = clause.to_lowercase();
-        if let Some(instead_idx) = lower.find("instead of ") {
-            let left = &clause[..instead_idx];
-            let right = &clause[instead_idx + "instead of ".len()..];
-            for cmd in extract_backticked_commands(left)
-                .into_iter()
-                .chain(extract_inline_ascii_command_after_cue(left, ALLOW_CUES))
-            {
-                if !allowed.contains(&cmd) {
-                    allowed.push(cmd);
-                }
-            }
-            for cmd in extract_backticked_commands(right)
-                .into_iter()
-                .chain(extract_inline_ascii_command_after_cue(right, &[""]))
-            {
-                if !prohibited.contains(&cmd) {
-                    prohibited.push(cmd);
-                }
-            }
-            continue;
-        }
-
-        let has_prohibit = PROHIBIT_CUES.iter().any(|c| lower.contains(c));
-        let has_allow = !has_prohibit && ALLOW_CUES.iter().any(|c| lower.contains(c));
-        if has_prohibit {
-            for cmd in extract_backticked_commands(clause).into_iter().chain(
-                extract_inline_ascii_command_after_cue(clause, PROHIBIT_CUES),
-            ) {
-                if !prohibited.contains(&cmd) {
-                    prohibited.push(cmd);
-                }
-            }
-        } else if has_allow {
-            for cmd in extract_backticked_commands(clause)
-                .into_iter()
-                .chain(extract_inline_ascii_command_after_cue(clause, ALLOW_CUES))
-            {
-                if !allowed.contains(&cmd) {
-                    allowed.push(cmd);
-                }
-            }
-        }
-    }
-    prohibited.retain(|p| !allowed.iter().any(|a| a.eq_ignore_ascii_case(p)));
-    (prohibited, allowed)
-}
-
-fn is_merge_segment(argv: &[String]) -> bool {
-    if git_subcommand(argv) == Some("merge") {
-        return true;
-    }
-    segment_matches_cli_sequence(argv, &["gh", "pr", "merge"])
-        || segment_matches_cli_sequence(argv, &["glab", "mr", "merge"])
-        || segment_matches_cli_sequence(argv, &["hub", "merge"])
-}
-
-fn is_git_push_segment(argv: &[String]) -> bool {
-    git_subcommand(argv) == Some("push")
-}
-
-fn is_force_push_segment(argv: &[String]) -> bool {
-    is_git_push_segment(argv)
-        && argv[1..].iter().any(|arg| {
-            matches!(arg.as_str(), "--force" | "-f" | "--force-with-lease")
-                || (arg.starts_with('+') && arg.len() > 1)
-        })
-}
-
-fn is_migrate_segment(argv: &[String]) -> bool {
-    let bin = binary_basename(&argv[0]);
-    bin == "migrate"
-        || segment_matches_cli_sequence(argv, &["sqlx", "migrate"])
-        || segment_matches_cli_sequence(argv, &["diesel", "migration"])
-        || segment_matches_cli_sequence(argv, &["sea-orm-cli", "migrate"])
-        || segment_matches_cli_sequence(argv, &["refinery", "migrate"])
-        || segment_matches_cli_sequence(argv, &["prisma", "migrate"])
-        || segment_matches_cli_sequence(argv, &["prisma", "db", "push"])
-        || segment_matches_cli_sequence(argv, &["alembic", "upgrade"])
-        || segment_matches_cli_sequence(argv, &["alembic", "downgrade"])
-        || segment_matches_cli_sequence(argv, &["flyway", "migrate"])
-        || segment_matches_cli_sequence(argv, &["knex", "migrate"])
-        || (matches!(bin, "python" | "python3")
-            && argv.iter().any(|a| a.ends_with("manage.py"))
-            && argv.iter().any(|a| a == "migrate"))
-}
-
-fn is_deploy_segment(argv: &[String]) -> bool {
-    let bin = binary_basename(&argv[0]);
-    bin == "deploy"
-        || segment_matches_cli_sequence(argv, &["kubectl", "apply"])
-        || segment_matches_cli_sequence(argv, &["kubectl", "rollout"])
-        || segment_matches_cli_sequence(argv, &["helm", "upgrade"])
-        || segment_matches_cli_sequence(argv, &["helm", "install"])
-        || segment_matches_cli_sequence(argv, &["terraform", "apply"])
-        || segment_matches_cli_sequence(argv, &["fly", "deploy"])
-        || segment_matches_cli_sequence(argv, &["vercel", "deploy"])
-}
-
-fn is_publish_segment(argv: &[String]) -> bool {
-    segment_matches_cli_sequence(argv, &["cargo", "publish"])
-        || segment_matches_cli_sequence(argv, &["npm", "publish"])
-        || segment_matches_cli_sequence(argv, &["pnpm", "publish"])
-        || segment_matches_cli_sequence(argv, &["yarn", "publish"])
-        || segment_matches_cli_sequence(argv, &["gh", "release"])
-        || segment_matches_cli_sequence(argv, &["twine", "upload"])
-}
-
-fn is_destructive_segment(argv: &[String]) -> bool {
-    let bin = binary_basename(&argv[0]);
-    if bin == "rm" && argv.len() >= 2 {
-        return true;
-    }
-    if git_subcommand(argv) == Some("reset") && argv.iter().any(|a| a == "--hard") {
-        return true;
-    }
-    if git_subcommand(argv) == Some("clean")
-        && argv.iter().any(|a| {
-            a == "--force" || (a.starts_with('-') && !a.starts_with("--") && a.contains('f'))
-        })
-    {
-        return true;
-    }
-    if git_subcommand(argv) == Some("branch")
-        && argv
-            .iter()
-            .any(|a| matches!(a.as_str(), "-d" | "-D" | "--delete"))
-    {
-        return true;
-    }
-    if segment_matches_cli_sequence(argv, &["kubectl", "delete"])
-        || segment_matches_cli_sequence(argv, &["terraform", "destroy"])
-    {
-        return true;
-    }
-    let joined = argv.join(" ");
-    joined.contains("drop table") || joined.contains("truncate table")
 }
 
 fn normalize_rel_path(raw: &str) -> String {
@@ -1795,113 +1190,6 @@ fn anchor_matches_targets(
         }
     }
     false
-}
-
-fn collect_value_strings(value: &Value, out: &mut Vec<String>) {
-    match value {
-        Value::String(s) => {
-            if !s.trim().is_empty() {
-                out.push(s.clone());
-            }
-        }
-        Value::Array(items) => {
-            for item in items {
-                collect_value_strings(item, out);
-            }
-        }
-        Value::Object(fields) => {
-            for v in fields.values() {
-                collect_value_strings(v, out);
-            }
-        }
-        Value::Null | Value::Bool(_) | Value::Number(_) => {}
-    }
-}
-
-fn collect_fact_policy_corpus(fact: &Fact, linked_concepts: &[CommunityConcept]) -> String {
-    let mut parts = Vec::new();
-    if !fact.subject.trim().is_empty() && !is_generic_subject_placeholder(&fact.subject) {
-        parts.push(fact.subject.clone());
-    }
-    collect_value_strings(&fact.object, &mut parts);
-    if let Some(quote) = fact
-        .source_anchor
-        .as_ref()
-        .and_then(|a| a.verbatim_quote.as_deref())
-    {
-        if !quote.trim().is_empty() {
-            parts.push(quote.to_owned());
-        }
-    }
-    for tag in &fact.tags {
-        if !tag.trim().is_empty() {
-            parts.push(tag.clone());
-        }
-    }
-    if let Some(GovernedScope::Resource { target }) = &fact.governed_scope {
-        if !target.trim().is_empty() {
-            parts.push(target.clone());
-        }
-    }
-    let direct_ids = kp_model::fact_concept_ids(fact);
-    for concept in linked_concepts {
-        if (direct_ids.is_empty() || direct_ids.contains(&concept.id))
-            && !concept.canonical_label.trim().is_empty()
-        {
-            parts.push(concept.canonical_label.clone());
-        }
-    }
-    parts.join("\n")
-}
-
-fn extract_protected_file_tokens(corpus: &str) -> Vec<String> {
-    const PROTECTED_EXTS: &[&str] = &[
-        ".sql", ".rs", ".toml", ".yaml", ".yml", ".json", ".lock", ".env", ".sh", ".py", ".ts",
-        ".tsx", ".js", ".jsx", ".go", ".md", ".ipynb",
-    ];
-    let mut tokens = Vec::new();
-    for raw in corpus.split(|c: char| {
-        c.is_whitespace()
-            || matches!(
-                c,
-                '`' | '\''
-                    | '"'
-                    | '“'
-                    | '”'
-                    | '‘'
-                    | '’'
-                    | '「'
-                    | '」'
-                    | '('
-                    | ')'
-                    | '（'
-                    | '）'
-                    | '['
-                    | ']'
-                    | ','
-                    | '，'
-                    | '。'
-                    | ';'
-                    | '；'
-                    | ':'
-                    | '：'
-            )
-    }) {
-        let token = raw.trim_matches('/');
-        if token.len() < 3 {
-            continue;
-        }
-        let lower = token.to_ascii_lowercase();
-        let has_ext = PROTECTED_EXTS.iter().any(|ext| lower.ends_with(ext));
-        let looks_like_rel_path = token.contains('/')
-            && token
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b"/_-.".contains(&b));
-        if (has_ext || looks_like_rel_path) && !tokens.iter().any(|t| t == token) {
-            tokens.push(token.to_owned());
-        }
-    }
-    tokens
 }
 
 fn fact_reference_time(fact: &Fact, fallback: EpochMs) -> EpochMs {

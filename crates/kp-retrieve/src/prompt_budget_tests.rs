@@ -405,6 +405,7 @@ fn format_date_iso_is_infallible_on_open_end_and_overflow_timestamps() -> TestRe
             fact_author: Some(alice.clone()),
             source_label: "local".into(),
             claim_text: "维护窗口复核规范".into(),
+            is_untrusted: false,
             score: 0.85,
             pending_ambiguous_question: None,
             supporting_premises: Vec::new(),
@@ -540,6 +541,7 @@ proptest! {
                 fact_author: Some(author),
                 source_label: "运维讨论群".into(),
                 claim_text: claim,
+                is_untrusted: false,
                 score,
                 pending_ambiguous_question: question,
                 supporting_premises: Vec::new(),
@@ -833,7 +835,6 @@ fn derived_collision_warning_renders_human_premise_quotes_deduplicates_premises_
         );
     }
 
-    // Carol cannot see the restricted scope or `CollisionWarning`.
     let carol_ctx = retrieve_prompt_context(
         &store,
         &carol,
@@ -842,5 +843,79 @@ fn derived_collision_warning_renders_human_premise_quotes_deduplicates_premises_
         &PromptBudgetConfig::default().with_time_zone(TimeZone::get("Asia/Shanghai")?),
     )?;
     assert!(carol_ctx.text.is_empty());
+    Ok(())
+}
+
+#[test]
+fn external_untrusted_facts_and_web_chunks_render_explicit_untrusted_provenance_badge() -> TestResult
+{
+    let (_dir, mut store) = community_store()?;
+    let alice: ActorId = "alice".parse()?;
+    let tz = TimeZone::get("Asia/Shanghai")?;
+    let cfg = PromptBudgetConfig::default().with_time_zone(tz);
+
+    let untrusted_fact_id = new_fact_id()?;
+    let mut untrusted_fact = make_fact(
+        untrusted_fact_id.clone(),
+        "ext.github.stranger",
+        &["alice"],
+        "redis eviction policy",
+        "External PR comment reports allkeys-lru eviction tuning parameters",
+    )?;
+    untrusted_fact.kind = FactKind::Observation;
+    untrusted_fact.trust_tier = TrustTier::ExternalUntrusted;
+    store.insert_fact(&untrusted_fact)?;
+
+    let fact_ctx = retrieve_prompt_context(
+        &store,
+        &alice,
+        NOV_19_2026_UTC,
+        "allkeys-lru eviction tuning",
+        &cfg,
+    )?;
+    assert_eq!(fact_ctx.items.len(), 1);
+    assert!(
+        fact_ctx.text.starts_with(&format!(
+            "[2026-11-19 · untrusted · ext.github.stranger @ community-main · kp-ref:{untrusted_fact_id}] "
+        )),
+        "expected untrusted provenance marker on ExternalUntrusted fact, got: {}",
+        fact_ctx.text
+    );
+
+    store.ingest_source(
+        &"community-main".parse()?,
+        &"web-doc".parse()?,
+        &RawSourceInput {
+            self_echo_filtered: true,
+            uri: "https://docs.example.com/pgvector-hnsw".into(),
+            media_type: "text/markdown".into(),
+            content: "pgvector HNSW ef_search benchmark numbers"
+                .as_bytes()
+                .to_vec(),
+            readable_by: AudienceSpec::Explicit([alice.clone()].into_iter().collect()),
+            captured_at: NOV_19_2026_UTC,
+            chunks: vec![ChunkInput {
+                heading: "HNSW Benchmarks".into(),
+                body: "pgvector HNSW ef_search benchmark numbers".into(),
+                anchor: AnchorSpec::default(),
+            }],
+        },
+    )?;
+
+    let web_ctx = retrieve_prompt_context(
+        &store,
+        &alice,
+        NOV_19_2026_UTC,
+        "pgvector HNSW ef_search benchmark",
+        &cfg,
+    )?;
+    assert_eq!(web_ctx.items.len(), 1);
+    assert!(
+        web_ctx.text.starts_with(
+            "[2026-11-19 · untrusted · alice @ https://docs.example.com/pgvector-hnsw · kp-ref:"
+        ),
+        "expected untrusted provenance marker on external web chunk, got: {}",
+        web_ctx.text
+    );
     Ok(())
 }

@@ -42,6 +42,7 @@ pub use db::{InitOptions, LibraryStatus, MemberToken, Store};
 pub use episodes::{AnchoredSourceChunk, Episode, PendingEpisode};
 pub use error::{Result, StoreError};
 pub use export::ExportReport;
+pub use facts::UntaggedGuardCandidate;
 pub use governance::{
     is_ambiguous_scope_review_supported, is_open_review_currently_valid, new_concept_id,
     new_fact_id, new_job_id, new_justification_id, new_rejection_id, new_review_id, new_source_id,

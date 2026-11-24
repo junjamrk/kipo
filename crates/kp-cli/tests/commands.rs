@@ -1246,7 +1246,8 @@ if "演练窗口禁止执行 sqlx migrate" in prompt:
         "speaker": "bob",
         "assumed_premise_ids": [],
         "quote": {{"chunk_id": cid, "verbatim_quote": "容灾演练窗口禁止执行 sqlx migrate", "turn_ordinal": None, "approx_char_offset": None}},
-        "write_op": {{"op": "add", "target_fact_id": None}}
+        "write_op": {{"op": "add", "target_fact_id": None}},
+        "command_guard": {{"forbidden_commands": ["sqlx migrate"], "allowed_commands": [], "required_flags": []}}
     }})
 if "下周四全天开启主库故障切换演练" in prompt:
     atoms.append({{
@@ -1263,7 +1264,8 @@ if "下周四全天开启主库故障切换演练" in prompt:
         "speaker": None,
         "assumed_premise_ids": [],
         "quote": {{"chunk_id": cid, "verbatim_quote": "下周四全天开启主库故障切换演练", "turn_ordinal": None, "approx_char_offset": None}},
-        "write_op": {{"op": "add", "target_fact_id": None}}
+        "write_op": {{"op": "add", "target_fact_id": None}},
+        "command_guard": None
     }})
 print(json.dumps({{"structured_output": {{"skip_summary": False, "atoms": atoms}}}}, ensure_ascii=False))
 "#,
@@ -1542,7 +1544,7 @@ fn codex_pre_tool_denies_with_kp_allow_and_single_use_ten_minute_grant_blocks_en
             "--predicate",
             "kp.policy.guard",
             "--value",
-            r#"{"hard_guard":true,"reason":"压测维护窗口禁止合并分支或直接改动 lib.rs"}"#,
+            r#"{"hard_guard":true,"reason":"压测维护窗口禁止合并分支或直接改动 lib.rs","forbidden_commands":["git merge"]}"#,
             "--kind",
             "constraint",
             "--valid-from",
@@ -1697,7 +1699,7 @@ fn pre_tool_use_blocks_derived_collision_warning_and_cites_supporting_premises_w
             "--predicate",
             "kp.core.preference",
             "--value",
-            "演练窗口禁止执行 sqlx migrate",
+            r#"{"summary":"演练窗口禁止执行 sqlx migrate","forbidden_commands":["sqlx migrate"]}"#,
             "--kind",
             "constraint",
             "--tags",
@@ -2060,7 +2062,12 @@ fn multi_guard_codex_pre_tool_use_and_multi_arg_kp_allow_are_all_or_nothing() ->
                 "--predicate",
                 "kp.policy.guard",
                 "--value",
-                &serde_json::json!({ "hard_guard": true, "reason": reason }).to_string(),
+                &serde_json::json!({
+                    "hard_guard": true,
+                    "reason": reason,
+                    "forbidden_commands": ["git push --force", "git push -f"]
+                })
+                .to_string(),
                 "--kind",
                 "constraint",
                 "--logical-key",

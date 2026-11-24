@@ -7,9 +7,9 @@ use std::time::Duration;
 use htmd::node::{Node, NodeType};
 use htmd::options::{BulletListMarker, CodeBlockFence, CodeBlockStyle, HeadingStyle, Options};
 use htmd::HtmlToMarkdown;
-use kp_derive::{base_fact, Extractor, FunnelOptions, Memory};
-use kp_model::{AnchorSpec, ContentHash, TrustTier, ValidityWindow};
-use kp_store::{ChunkInput, RawSourceInput, Store};
+use kp_derive::{base_fact, default_auto_route_policy, Extractor, FunnelOptions, Memory};
+use kp_model::{AnchorSpec, FactKind, ModelRoutePolicy, TrustTier, ValidityWindow};
+use kp_store::{ChunkInput, GovernedSourceInput, GovernedUpsertMode, Store, StoreError};
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 
 use crate::doc_router::AddedDocument;
@@ -1216,6 +1216,18 @@ pub async fn add_url(
     trusted: bool,
     extractor: Option<&dyn Extractor>,
 ) -> Result<AddedDocument> {
+    let policy = default_auto_route_policy();
+    add_url_with_policy(store, raw_url, options, &policy, trusted, extractor).await
+}
+
+pub async fn add_url_with_policy(
+    store: &mut Store,
+    raw_url: &str,
+    options: &FunnelOptions,
+    effective_policy: &ModelRoutePolicy,
+    trusted: bool,
+    extractor: Option<&dyn Extractor>,
+) -> Result<AddedDocument> {
     let allow_local = std::env::var_os("KP_ALLOW_LOCAL_URL_INGEST").is_some();
     let (final_url, mut resp) = fetch_url_ssrf_safe(raw_url, allow_local).await?;
 
@@ -1314,11 +1326,18 @@ pub async fn add_url(
     for ch in &mut chunks {
         ch.anchor.file_path = Some(uri.clone());
     }
-    let key = format!("source:{uri}:{}", ContentHash::digest(&stored_bytes)).parse()?;
+    let external_source_key = format!("url:{uri}");
     let mut inputs = Vec::new();
     if let Some(extractor) = extractor {
-        for chunk in &chunks {
-            for extracted in extractor.extract(&chunk.body, &uri)? {
+        for (ordinal, chunk) in chunks.iter().enumerate() {
+            let heading_ctx = (!chunk.heading.trim().is_empty()).then_some(chunk.heading.as_str());
+            for extracted in
+                extractor.extract_chunk(&chunk.body, &uri, heading_ctx, Some(media_type))?
+            {
+                if !trusted && !matches!(extracted.kind, FactKind::Observation | FactKind::FactSlot)
+                {
+                    continue;
+                }
                 let mut input = base_fact(
                     store,
                     Memory {
@@ -1339,39 +1358,34 @@ pub async fn add_url(
                 if !trusted {
                     input.fact.trust_tier = TrustTier::ExternalUntrusted;
                 }
-                input.fact.source_anchor = Some(chunk.anchor.clone());
+                let mut anchor = chunk.anchor.clone();
+                anchor.chunk_id = Some(format!("__ordinal__:{ordinal}"));
+                input.fact.source_anchor = Some(anchor);
                 inputs.push(input);
             }
         }
     }
     let chunk_count = chunks.len();
-    let raw_input = RawSourceInput {
-        uri: uri.clone(),
-        media_type: media_type.into(),
-        content: stored_bytes,
-        readable_by: options.audience.clone(),
-        captured_at: options.at,
-        chunks,
-        self_echo_filtered: false,
-    };
-    let lib_id = store.library_id().clone();
-    let (source, extracted) = if store.status()?.embedding_dims == 0 {
-        store.ingest_funnel(
-            &lib_id,
-            &key,
-            &raw_input,
-            &kp_store::FtsOnlyEmbedder,
-            &mut inputs,
-        )?
-    } else {
-        store.ingest_funnel(
-            &lib_id,
-            &key,
-            &raw_input,
-            &kp_store::HashEmbedder,
-            &mut inputs,
-        )?
-    };
+    let (outcome, extracted) = store.upsert_governed_source_with_facts(
+        GovernedSourceInput {
+            external_source_key,
+            uri: uri.clone(),
+            media_type: media_type.into(),
+            bytes: stored_bytes,
+            chunks,
+            speaker: options.actor.clone(),
+            ingested_by: options.actor.clone(),
+            readable_by: options.audience.clone(),
+            source_scope_id: None,
+            effective_policy: effective_policy.clone(),
+            op_kind: GovernedUpsertMode::AutoSupersede,
+            thread_key: None,
+            reply_to_key: None,
+            captured_at: options.at,
+        },
+        &mut inputs,
+    )?;
+    let source = outcome.source.ok_or(StoreError::NotFound)?;
     Ok(AddedDocument {
         uri,
         source,

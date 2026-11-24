@@ -28,7 +28,6 @@ async fn media_and_subtitle_formats_are_rejected_and_json_with_segments_parses_u
     assert!(html_chunks[0].body.contains("`prisma migrate deploy`"));
     assert!(!html_chunks[0].body.contains("evil()"));
 
-    // Explicit rejection of `.mp4`, `.m4a`, `.mp3`, `.vtt`, `.srt`, `.lrc` (even when sidecars exist).
     fs::write(
         dir.path().join("walkthrough.vtt"),
         "WEBVTT\n\n00:02:10.000 --> 00:02:24.500\nsidecar text\n",
@@ -65,7 +64,6 @@ async fn media_and_subtitle_formats_are_rejected_and_json_with_segments_parses_u
         );
     }
 
-    // `.json` containing `"segments"` keys parses uniformly as `application/json` (never hijacked as Whisper ASR).
     let json_payload = r#"{"segments":[{"start":12.4,"end":19.8,"speaker":"alice","text":"部署前必须执行 pnpm test 并确认退出码为 0。"}]}"#;
     let json_path = dir.path().join("recording.json");
     fs::write(&json_path, json_payload)?;

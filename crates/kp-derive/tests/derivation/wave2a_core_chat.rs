@@ -156,6 +156,7 @@ fn upsert_governed_source_supersedes_prior_facts_cancels_jobs_and_partitions_lar
             },
             evidence: None,
             write_op: ModelWriteOp::Add,
+            command_guard: None,
         }],
         &NlFunnelOptions::personal_or_shared(AudienceSpec::AllMembers, t0),
     )?;
@@ -398,6 +399,7 @@ fn base_anchor_slide_page_sheet_survive_nl_funnel_staging_via_quote_in_chunk() -
                 },
                 evidence: None,
                 write_op: ModelWriteOp::Add,
+                command_guard: None,
             }],
             &NlFunnelOptions::personal_or_shared(AudienceSpec::AllMembers, t0),
         )?;
@@ -589,6 +591,7 @@ fn multi_turn_chat_ratification_adjacency_and_bidirectional_cascade_retirement()
                 approx_char_offset: None,
             }),
             write_op: ModelWriteOp::Add,
+            command_guard: None,
         }],
         &opts1,
     )?;
@@ -707,6 +710,7 @@ fn multi_turn_chat_ratification_adjacency_and_bidirectional_cascade_retirement()
                 },
                 evidence: None,
                 write_op: ModelWriteOp::Add,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Observation,
@@ -731,6 +735,7 @@ fn multi_turn_chat_ratification_adjacency_and_bidirectional_cascade_retirement()
                 },
                 evidence: None,
                 write_op: ModelWriteOp::Add,
+                command_guard: None,
             },
         ],
         &opts_f,
@@ -856,6 +861,7 @@ fn multi_turn_chat_ratification_adjacency_and_bidirectional_cascade_retirement()
                     approx_char_offset: None,
                 }),
                 write_op: ModelWriteOp::Add,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Decision,
@@ -884,6 +890,7 @@ fn multi_turn_chat_ratification_adjacency_and_bidirectional_cascade_retirement()
                     approx_char_offset: None,
                 }),
                 write_op: ModelWriteOp::Add,
+                command_guard: None,
             },
         ],
         &opts2,
@@ -1015,6 +1022,7 @@ fn multi_turn_chat_ratification_adjacency_and_bidirectional_cascade_retirement()
                 approx_char_offset: None,
             }),
             write_op: ModelWriteOp::Add,
+            command_guard: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([alice.clone()])),
@@ -1186,6 +1194,7 @@ fn multi_job_window_isolates_scopes_and_sessions_and_rolls_back_on_concurrent_re
             },
             evidence: None,
             write_op: ModelWriteOp::Add,
+            command_guard: None,
         }],
         &opts,
     )?;
@@ -1240,5 +1249,140 @@ fn multi_job_window_isolates_scopes_and_sessions_and_rolls_back_on_concurrent_re
     assert!(store.list_active_concepts()?.is_empty());
     assert!(!store.is_chunk_extracted(&hashes[0].0, &alice, "m1-nl-v1")?);
     assert!(!store.is_chunk_extracted(&hashes[2].0, &carol, "m1-nl-v1")?);
+    Ok(())
+}
+
+#[test]
+fn command_guard_flattens_onto_constraint_and_resource_scope_while_stripping_non_guard_or_untrusted(
+) -> Result {
+    let (_dir, mut store) = wave2a_community_store()?;
+    let alice: ActorId = "alice".parse()?;
+    let t0 = EpochMs(1_795_089_600_000);
+    let shanghai = TimeZone::get("Asia/Shanghai")?;
+    let calendar = CalendarTable::from_reference_in_tz(t0, &shanghai)?;
+
+    let body = "Never run pip install; use uv pip install, and protect src/lib.rs. Node is 22.";
+    let out_src = store.upsert_governed_source(GovernedSourceInput {
+        external_source_key: "file:///notes/guards.md".into(),
+        uri: "file:///notes/guards.md".into(),
+        media_type: "text/markdown".into(),
+        bytes: body.as_bytes().to_vec(),
+        chunks: vec![ChunkInput {
+            heading: "Guards".into(),
+            body: body.into(),
+            anchor: AnchorSpec::default(),
+        }],
+        speaker: alice.clone(),
+        ingested_by: alice.clone(),
+        readable_by: AudienceSpec::AllMembers,
+        source_scope_id: None,
+        effective_policy: ModelRoutePolicy::HostCli,
+        op_kind: GovernedUpsertMode::AutoSupersede,
+        thread_key: None,
+        reply_to_key: None,
+        captured_at: t0,
+    })?;
+    let sid = out_src.source.ok_or("source")?.source_id;
+    let cid = format!("{sid}-0");
+    let slice = kp_model::ExtractionChunkSlice {
+        chunk_id: cid.clone(),
+        source_id: sid.clone(),
+        author: alice.clone(),
+        base_anchor: AnchorSpec::default(),
+        role: kp_model::SliceRole::Target,
+        reply_to_chunk_id: None,
+        heading: "Guards".into(),
+        body: body.into(),
+    };
+    let req = build_extraction_batch_request(
+        &store,
+        sid,
+        alice.clone(),
+        calendar,
+        Vec::new(),
+        vec![slice],
+        5,
+    )?;
+
+    let guard_spec = kp_model::CommandGuardSpec {
+        forbidden_commands: vec!["pip install".into()],
+        allowed_commands: vec!["uv pip install".into()],
+        required_flags: vec!["--locked".into()],
+    };
+    let applied = apply_extracted_atoms(
+        &mut store,
+        &req,
+        &[
+            ModelExtractedAtom {
+                kind: FactKind::Constraint,
+                claim_text: "Forbid pip install and protect src/lib.rs".into(),
+                value: json!({"note": "packaging"}),
+                scope: Some(kp_model::ModelScopeRef::Resource {
+                    target: "src/lib.rs".into(),
+                }),
+                ambiguous_scope: None,
+                condition_concept: None,
+                action_concept: None,
+                group_concept: None,
+                member_mention: None,
+                valid_window: None,
+                valid_dates: None,
+                speaker: Some(alice.clone()),
+                assumed_premise_ids: Vec::new(),
+                quote: ModelQuoteAnchor {
+                    chunk_id: cid.clone(),
+                    verbatim_quote:
+                        "Never run pip install; use uv pip install, and protect src/lib.rs.".into(),
+                    turn_ordinal: None,
+                    approx_char_offset: None,
+                },
+                evidence: None,
+                command_guard: Some(guard_spec.clone()),
+                write_op: ModelWriteOp::Add,
+            },
+            ModelExtractedAtom {
+                kind: FactKind::Observation,
+                claim_text: "Node is 22".into(),
+                value: json!({"node": 22}),
+                scope: None,
+                ambiguous_scope: None,
+                condition_concept: None,
+                action_concept: None,
+                group_concept: None,
+                member_mention: None,
+                valid_window: None,
+                valid_dates: None,
+                speaker: Some(alice),
+                assumed_premise_ids: Vec::new(),
+                quote: ModelQuoteAnchor {
+                    chunk_id: cid,
+                    verbatim_quote: "Node is 22.".into(),
+                    turn_ordinal: None,
+                    approx_char_offset: None,
+                },
+                evidence: None,
+                command_guard: Some(guard_spec),
+                write_op: ModelWriteOp::Add,
+            },
+        ],
+        &NlFunnelOptions::personal_or_shared(AudienceSpec::AllMembers, t0),
+    )?;
+    assert_eq!(applied.created_fact_ids.len(), 2);
+    let graph = store.derivation_view()?;
+    let cf = &graph.facts[&applied.created_fact_ids[0]];
+    assert_eq!(
+        cf.governed_scope,
+        Some(kp_model::GovernedScope::Resource {
+            target: "src/lib.rs".into()
+        })
+    );
+    assert_eq!(cf.object["hard_guard"], json!(true));
+    assert_eq!(cf.object["forbidden_commands"], json!(["pip install"]));
+    assert_eq!(cf.object["allowed_commands"], json!(["uv pip install"]));
+    assert_eq!(cf.object["required_flags"], json!(["--locked"]));
+
+    let obs = &graph.facts[&applied.created_fact_ids[1]];
+    assert!(obs.object.get("forbidden_commands").is_none());
+    assert!(obs.object.get("hard_guard").is_none());
     Ok(())
 }

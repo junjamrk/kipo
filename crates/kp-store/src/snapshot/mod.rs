@@ -87,6 +87,8 @@ pub struct PromptPremise {
     pub speaker: ActorId,
     pub source_label: String,
     pub claim_or_quote: String,
+    #[serde(default)]
+    pub is_untrusted: bool,
 }
 
 /// Lightweight per-candidate provenance & serendipitous review metadata fetched by O(1) PK lookups.
@@ -100,6 +102,8 @@ pub struct PromptDocMeta {
     pub fact_author: Option<ActorId>,
     pub source_label: String,
     pub claim_text: String,
+    #[serde(default)]
+    pub is_untrusted: bool,
     pub pending_ambiguous_question: Option<String>,
     #[serde(default)]
     pub supporting_premises: Vec<PromptPremise>,

@@ -411,6 +411,10 @@ pub struct DreamReport {
     #[serde(default)]
     pub facts_distilled: usize,
     #[serde(default)]
+    pub guards_backfilled: usize,
+    #[serde(default)]
+    pub untagged_guard_candidates: usize,
+    #[serde(default)]
     pub scanner_rejected: usize,
 }
 
@@ -682,5 +686,6 @@ pub async fn dream(
         report.bullets_created += usize::from(applied.created);
     }
     report.promoted = crate::skill_pkg::promote_ready(store, actor, at)?;
+    report.untagged_guard_candidates = store.untagged_guard_candidate_count()?;
     Ok(report)
 }

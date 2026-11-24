@@ -1,9 +1,9 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use kp_model::{FactKind, KpError};
+use kp_model::{CommandGuardSpec, FactKind, KpError};
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -39,6 +39,17 @@ pub trait Extractor {
         let _ = media_type;
         self.extract(content, uri)
     }
+
+    fn extract_chunk(
+        &self,
+        content: &str,
+        uri: &str,
+        heading: Option<&str>,
+        media_type: Option<&str>,
+    ) -> kp_store::Result<Vec<ExtractedFact>> {
+        let _ = heading;
+        self.extract_with_media_type(content, uri, media_type)
+    }
 }
 
 #[derive(Default)]
@@ -71,6 +82,16 @@ impl Extractor for RuleExtractor {
         uri: &str,
         media_type: Option<&str>,
     ) -> kp_store::Result<Vec<ExtractedFact>> {
+        self.extract_chunk(content, uri, None, media_type)
+    }
+
+    fn extract_chunk(
+        &self,
+        content: &str,
+        uri: &str,
+        heading: Option<&str>,
+        media_type: Option<&str>,
+    ) -> kp_store::Result<Vec<ExtractedFact>> {
         if is_json_source(uri, media_type) {
             return structured(content.trim(), uri);
         }
@@ -82,7 +103,11 @@ impl Extractor for RuleExtractor {
         let all_lines: Vec<&str> = content.lines().collect();
         let start_idx = parse_frontmatter(&all_lines, uri, &mut facts)?;
 
-        let mut subject = uri.to_owned();
+        let mut subject = heading
+            .map(str::trim)
+            .filter(|h| !h.is_empty())
+            .unwrap_or(uri)
+            .to_owned();
         let mut fence: Option<OpenFence> = None;
 
         for &raw_line in &all_lines[start_idx..] {
@@ -170,7 +195,34 @@ impl Extractor for RuleExtractor {
                 entities,
                 tags: BTreeSet::new(),
             };
-            if let Some((slot_predicate, slot_value)) = body.split_once('=') {
+            if matches!(kind, FactKind::Constraint | FactKind::Decision) {
+                let (guard_spec, cleaned_prose) = parse_bracket_command_guard_tags(body);
+                if !guard_spec.is_empty() {
+                    let summary = if cleaned_prose.is_empty() {
+                        body.to_owned()
+                    } else {
+                        cleaned_prose
+                    };
+                    let mut map = serde_json::Map::new();
+                    map.insert("summary".into(), Value::String(summary));
+                    if guard_spec.has_enforced_guard() {
+                        map.insert("hard_guard".into(), json!(true));
+                    }
+                    map.insert(
+                        "forbidden_commands".into(),
+                        serde_json::to_value(&guard_spec.forbidden_commands)?,
+                    );
+                    map.insert(
+                        "allowed_commands".into(),
+                        serde_json::to_value(&guard_spec.allowed_commands)?,
+                    );
+                    map.insert(
+                        "required_flags".into(),
+                        serde_json::to_value(&guard_spec.required_flags)?,
+                    );
+                    fact.value = Value::Object(map);
+                }
+            } else if let Some((slot_predicate, slot_value)) = body.split_once('=') {
                 if kind == FactKind::FactSlot && !slot_predicate.trim().is_empty() {
                     fact.predicate = slot_predicate.trim().into();
                     fact.value = parse_value(slot_value.trim());
@@ -347,6 +399,102 @@ fn structured_value(value: Value, uri: &str) -> kp_store::Result<Vec<ExtractedFa
 
 fn parse_value(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.trim_matches('"').into()))
+}
+
+pub fn parse_bracket_command_guard_tags(body: &str) -> (CommandGuardSpec, String) {
+    let mut spec = CommandGuardSpec::default();
+    let mut prose = String::with_capacity(body.len());
+    let mut idx = 0usize;
+
+    while idx < body.len() {
+        let rem = &body[idx..];
+        if let Some(after_wiki) = rem.strip_prefix("[[") {
+            if let Some(end_wiki) = after_wiki.find("]]") {
+                let span_end = 2 + end_wiki + 2;
+                prose.push_str(&rem[..span_end]);
+                idx += span_end;
+                continue;
+            }
+        }
+        if let Some(after_open) = rem.strip_prefix('[') {
+            if let Some(close_rel) = find_bracket_close_respecting_backticks(after_open) {
+                let inside = &after_open[..close_rel];
+                if let Some((raw_key, raw_vals)) = inside.split_once(':') {
+                    let key_lc = raw_key.trim().to_ascii_lowercase();
+                    if matches!(key_lc.as_str(), "forbid" | "allow" | "require_flag") {
+                        let parsed_vals = split_tag_items(raw_vals);
+                        match key_lc.as_str() {
+                            "forbid" => spec.forbidden_commands.extend(parsed_vals),
+                            "allow" => spec.allowed_commands.extend(parsed_vals),
+                            "require_flag" => spec.required_flags.extend(parsed_vals),
+                            _ => {}
+                        }
+                        idx += 1 + close_rel + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+        let ch = rem.chars().next().unwrap_or('\0');
+        prose.push(ch);
+        idx += ch.len_utf8();
+    }
+
+    let cleaned = prose.split_whitespace().collect::<Vec<_>>().join(" ");
+    (spec.normalized(), cleaned)
+}
+
+fn find_bracket_close_respecting_backticks(s: &str) -> Option<usize> {
+    let mut in_backtick = false;
+    for (idx, ch) in s.char_indices() {
+        match ch {
+            '`' => in_backtick = !in_backtick,
+            ']' if !in_backtick => return Some(idx),
+            _ => {}
+        }
+    }
+    None
+}
+
+fn split_tag_items(raw: &str) -> Vec<String> {
+    let mut items = Vec::new();
+    let mut cur = String::new();
+    let mut in_backtick = false;
+    for ch in raw.chars() {
+        match ch {
+            '`' => {
+                in_backtick = !in_backtick;
+                cur.push(ch);
+            }
+            ',' if !in_backtick => {
+                if let Some(clean) = clean_tag_token(&cur) {
+                    items.push(clean);
+                }
+                cur.clear();
+            }
+            _ => cur.push(ch),
+        }
+    }
+    if let Some(clean) = clean_tag_token(&cur) {
+        items.push(clean);
+    }
+    items
+}
+
+fn clean_tag_token(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let unquoted = trimmed
+        .strip_prefix('`')
+        .and_then(|s| s.strip_suffix('`'))
+        .or_else(|| trimmed.strip_prefix('"').and_then(|s| s.strip_suffix('"')))
+        .or_else(|| {
+            trimmed
+                .strip_prefix('\'')
+                .and_then(|s| s.strip_suffix('\''))
+        })
+        .unwrap_or(trimmed)
+        .trim();
+    (!unquoted.is_empty()).then(|| unquoted.to_owned())
 }
 
 fn mentions(text: &str) -> BTreeSet<String> {

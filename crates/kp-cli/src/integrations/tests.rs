@@ -54,7 +54,8 @@ async fn daemon_uds_fast_path_handles_prompt_context_pre_tool_allow_session_curs
             predicate: "kp.policy.guard".into(),
             object: json!({
                 "hard_guard": true,
-                "reason": "数据库迁移核验期间禁止合并分支或直接编辑 lib.rs"
+                "reason": "数据库迁移核验期间禁止合并分支或直接编辑 lib.rs",
+                "forbidden_commands": ["git merge"]
             }),
             tags: BTreeSet::new(),
             author: "alice".parse()?,
@@ -443,6 +444,7 @@ async fn automated_two_person_community_join_keeps_personal_events_private_and_a
                 ambiguous_scope: None,
                 assumed_premise_ids: Vec::new(),
                 evidence: None,
+                command_guard: None,
             }],
             &NlFunnelOptions {
                 audience: AudienceSpec::Explicit(BTreeSet::from(["alice".parse()?])),
@@ -525,6 +527,7 @@ async fn automated_two_person_community_join_keeps_personal_events_private_and_a
                     ambiguous_scope: None,
                     assumed_premise_ids: Vec::new(),
                     evidence: None,
+                    command_guard: None,
                 },
                 ModelExtractedAtom {
                     speaker: None,
@@ -568,6 +571,10 @@ async fn automated_two_person_community_join_keeps_personal_events_private_and_a
                     }),
                     assumed_premise_ids: Vec::new(),
                     evidence: None,
+                    command_guard: Some(kp_model::CommandGuardSpec {
+                        forbidden_commands: vec!["sqlx migrate".into()],
+                        ..Default::default()
+                    }),
                 },
             ],
             &NlFunnelOptions {

@@ -14,9 +14,10 @@ pub use collision::{
     CollisionDeriveOutcome, ConceptAlignmentTable, FactAlignmentKey, ScopeResolutionOutcome,
     ScopeReviewDecision, CONCEPT_ALIGNMENT_PREDICATE, CONCEPT_LABEL_BINDING_V2,
 };
-pub use extract::{ExtractedFact, Extractor, RuleExtractor};
+pub use extract::{parse_bracket_command_guard_tags, ExtractedFact, Extractor, RuleExtractor};
 pub use funnel::{
-    add_markdown, base_fact, markdown_chunks, remember, FunnelOptions, FunnelResult, Memory,
+    add_markdown, base_fact, default_auto_route_policy, markdown_chunks, remember, FunnelOptions,
+    FunnelResult, Memory,
 };
 pub use http_llm::{
     build_named_endpoint_llm_client, detect_global_generative_model, is_cli_auth_or_spawn_error,
@@ -42,11 +43,12 @@ pub use nl_funnel::{
     TokenBatchSpec,
 };
 pub use prompts::{
-    build_entailment_prompt, build_extraction_prompt, entailment_verdict_json_schema,
+    build_command_guard_backfill_prompt, build_entailment_prompt, build_extraction_prompt,
+    command_guard_backfill_json_schema, entailment_verdict_json_schema,
     extraction_batch_json_schema, is_chunk_trivial_or_ack_only, is_near_duplicate,
-    is_trivial_turn_text, jaccard_3gram, normalize_for_dedup, parse_entailment_verdict,
-    parse_extraction_envelope, shannon_entropy, shingles_3gram, MinHashSignature,
-    ModelExtractionEnvelope, DEFAULT_AMBIGUOUS_QUESTION, JACCARD_DEDUP_THRESHOLD,
+    is_trivial_turn_text, jaccard_3gram, normalize_for_dedup, parse_command_guard_backfill_reply,
+    parse_entailment_verdict, parse_extraction_envelope, shannon_entropy, shingles_3gram,
+    MinHashSignature, ModelExtractionEnvelope, DEFAULT_AMBIGUOUS_QUESTION, JACCARD_DEDUP_THRESHOLD,
     SKIP_SUMMARY_SENTINEL,
 };
 

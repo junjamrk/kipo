@@ -52,24 +52,28 @@ fn contract(store: &mut Store) -> Result<Fact> {
         },
         &options()?,
     )?;
-    let origin = store.library_id().clone();
-    store.ingest_funnel(
-        &origin,
-        &"api-source".parse()?,
-        &kp_store::RawSourceInput {
-            self_echo_filtered: false,
+    let opts = options()?;
+    store.upsert_governed_source_with_facts(
+        kp_store::GovernedSourceInput {
+            external_source_key: "file:///api.md".into(),
             uri: "api.md".into(),
             media_type: "text/markdown".into(),
-            content: b"API_CONTRACT_MARKER".to_vec(),
-            readable_by: options()?.audience,
-            captured_at: EpochMs(10),
+            bytes: b"API_CONTRACT_MARKER".to_vec(),
             chunks: vec![kp_store::ChunkInput {
                 heading: "API".into(),
                 body: "API_CONTRACT_MARKER".into(),
                 anchor: Default::default(),
             }],
+            speaker: opts.actor.clone(),
+            ingested_by: opts.actor,
+            readable_by: opts.audience,
+            source_scope_id: None,
+            effective_policy: kp_model::ModelRoutePolicy::RawOnly,
+            op_kind: kp_store::GovernedUpsertMode::AutoSupersede,
+            thread_key: None,
+            reply_to_key: None,
+            captured_at: EpochMs(10),
         },
-        &kp_store::HashEmbedder,
         std::slice::from_mut(&mut input),
     )?;
     Ok(input.fact)

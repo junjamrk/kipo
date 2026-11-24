@@ -19,10 +19,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub use kp_model::{is_trivial_turn_text, normalize_for_dedup};
 use kp_model::{
-    ActorId, ConceptKind, ConceptPolarity, ContentHash, EntailmentQuery, EntailmentVerdict,
-    ExtractionBatchRequest, FactId, FactKind, KpError, ModelAmbiguousScope, ModelConceptRef,
-    ModelDateRange, ModelExtractedAtom, ModelQuoteAnchor, ModelScopeRef, ModelWriteOp,
-    SecretRedactor, SliceRole,
+    ActorId, CommandGuardSpec, ConceptKind, ConceptPolarity, ContentHash, EntailmentQuery,
+    EntailmentVerdict, ExtractionBatchRequest, FactId, FactKind, KpError, ModelAmbiguousScope,
+    ModelConceptRef, ModelDateRange, ModelExtractedAtom, ModelQuoteAnchor, ModelScopeRef,
+    ModelWriteOp, SecretRedactor, SliceRole,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -276,7 +276,12 @@ fn strict_scope_ref_schema() -> Value {
     strict_object(vec![
         (
             "scope",
-            strict_enum(&["speaker_self", "named_mentions", "relation_group"]),
+            strict_enum(&[
+                "speaker_self",
+                "named_mentions",
+                "relation_group",
+                "resource",
+            ]),
         ),
         (
             "mentions",
@@ -285,6 +290,36 @@ fn strict_scope_ref_schema() -> Value {
         (
             "group_concept",
             strict_nullable(strict_concept_ref_schema()),
+        ),
+        ("target", json!({ "type": ["string", "null"] })),
+    ])
+}
+
+fn strict_command_guard_schema() -> Value {
+    strict_object(vec![
+        (
+            "forbidden_commands",
+            json!({
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Banned CLI command prefixes (e.g. [\"pip install\", \"git push --force\"])"
+            }),
+        ),
+        (
+            "allowed_commands",
+            json!({
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Permitted or replacement CLI command prefixes (e.g. [\"uv pip install\"])"
+            }),
+        ),
+        (
+            "required_flags",
+            json!({
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Mandatory CLI flags required when running a guarded command (e.g. [\"--schema\", \"--locked\"])"
+            }),
         ),
     ])
 }
@@ -414,6 +449,13 @@ pub fn extraction_batch_json_schema() -> Value {
             ),
         ),
         (
+            "command_guard",
+            strict_nullable_described(
+                strict_command_guard_schema(),
+                "Populate ONLY on kind=\"constraint\" or kind=\"decision\" when the rule specifies banned CLI commands (`forbidden_commands`), replacement/allowed CLI commands (`allowed_commands`), or mandatory CLI flags (`required_flags`, e.g. [\"--schema\"], [\"--locked\"]); null otherwise.",
+            ),
+        ),
+        (
             "write_op",
             strict_object(vec![
                 ("op", strict_enum(&["add", "supersede_own", "none"])),
@@ -439,6 +481,55 @@ pub fn entailment_verdict_json_schema() -> Value {
     ])
 }
 
+/// Strict JSON Schema for one-shot sleep-time `CommandGuardSpec` backfill over legacy prose rules.
+pub fn command_guard_backfill_json_schema() -> Value {
+    strict_object(vec![(
+        "command_guard",
+        strict_nullable(strict_command_guard_schema()),
+    )])
+}
+
+pub fn build_command_guard_backfill_prompt(
+    subject: &str,
+    claim_or_summary: &str,
+    verbatim_quote: Option<&str>,
+    redactor: &SecretRedactor,
+) -> String {
+    let payload = json!({
+        "subject": redactor.redact(subject.trim()),
+        "claim": redactor.redact(claim_or_summary.trim()),
+        "verbatim_quote": verbatim_quote.map(|q| redactor.redact(q.trim())),
+    });
+    format!(
+        "You are `kp`'s write-time CLI command guard classifier.\n\
+Determine whether the following human-authored constraint or decision specifies concrete CLI command restrictions.\n\
+- Populate `command_guard = {{\"forbidden_commands\": [...], \"allowed_commands\": [...], \"required_flags\": [...]}}` ONLY when the rule explicitly bans CLI commands (`forbidden_commands`, e.g. `[\"pip install\"]`), names permitted replacement commands (`allowed_commands`, e.g. `[\"uv pip install\"]`), or mandates CLI flags (`required_flags`, e.g. `[\"--schema\"]`).\n\
+- When a command is prohibited ONLY when missing a mandatory flag, include the command in `forbidden_commands` AND the flag in `required_flags`.\n\
+- If the rule is a general habit, schedule, architecture note, or positive encouragement (`\"always run cargo clippy\"`) with no banned command or mandatory flag gate, return `{{\"command_guard\": null}}`.\n\
+GUARD_BACKFILL_JSON: {payload}"
+    )
+}
+
+pub fn parse_command_guard_backfill_reply(
+    value: Value,
+) -> kp_model::Result<Option<CommandGuardSpec>> {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct WireBackfillEnvelope {
+        command_guard: Option<WireCommandGuard>,
+    }
+    let env: WireBackfillEnvelope = serde_json::from_value(value)
+        .map_err(|_| KpError::invalid("guard_backfill_json", "invalid backfill envelope"))?;
+    Ok(env.command_guard.map(|cg| {
+        CommandGuardSpec {
+            forbidden_commands: cg.forbidden_commands,
+            allowed_commands: cg.allowed_commands,
+            required_flags: cg.required_flags,
+        }
+        .normalized()
+    }))
+}
+
 /// Default review question used when a model returns `ambiguous` without a usable question.
 pub const DEFAULT_AMBIGUOUS_QUESTION: &str =
     "这两个说法是否属于同一触发条件？请在 kp review 中确认。";
@@ -458,8 +549,23 @@ struct WireConceptRef {
 #[serde(deny_unknown_fields)]
 struct WireScopeRef {
     scope: String,
+    #[serde(default)]
     mentions: Option<Vec<String>>,
+    #[serde(default)]
     group_concept: Option<WireConceptRef>,
+    #[serde(default)]
+    target: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireCommandGuard {
+    #[serde(default)]
+    forbidden_commands: Vec<String>,
+    #[serde(default)]
+    allowed_commands: Vec<String>,
+    #[serde(default)]
+    required_flags: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -512,6 +618,8 @@ struct WireAtom {
     quote: WireQuote,
     #[serde(default)]
     evidence: Option<WireQuote>,
+    #[serde(default)]
+    command_guard: Option<WireCommandGuard>,
     write_op: WireWriteOp,
 }
 
@@ -590,6 +698,14 @@ fn wire_scope_inner(
             };
             Ok(ModelScopeRef::RelationGroup { group_concept })
         }
+        "resource" => {
+            let target = wire
+                .target
+                .map(|t| t.trim().to_owned())
+                .filter(|t| !t.is_empty())
+                .ok_or_else(|| KpError::invalid("scope", "resource scope requires target"))?;
+            Ok(ModelScopeRef::Resource { target })
+        }
         _ => Err(KpError::invalid("scope", "unknown scope variant")),
     }
 }
@@ -664,6 +780,14 @@ fn wire_atom(wire: WireAtom) -> kp_model::Result<ModelExtractedAtom> {
             verbatim_quote: ev.verbatim_quote,
             turn_ordinal: ev.turn_ordinal,
             approx_char_offset: ev.approx_char_offset,
+        }),
+        command_guard: wire.command_guard.map(|cg| {
+            CommandGuardSpec {
+                forbidden_commands: cg.forbidden_commands,
+                allowed_commands: cg.allowed_commands,
+                required_flags: cg.required_flags,
+            }
+            .normalized()
         }),
         write_op,
     })
@@ -866,11 +990,15 @@ Active decisions (`active_decisions`): {decisions_json}\n\
 - Concept references: cite `{{\"ref_type\": \"existing\", \"concept_id\": \"...\", \"kind\": null, \"label\": null, \"domain\": null, \"polarity\": null}}` ONLY for IDs in `active_concepts` of matching `ConceptKind`; otherwise emit `{{\"ref_type\": \"propose_new\", \"concept_id\": null, \"kind\": \"condition|action|group|topic\", \"label\": \"...\", \"domain\": \"...\", \"polarity\": \"positive|negative|neutral|resolved\"}}`.\n\
 - Events (`kind = \"event\"`): EVERY `kind = \"event\"` MUST populate a non-null `condition_concept` (`kind = \"condition\"`), even when `active_concepts` is empty (use `propose_new`)! `condition_concept.label` MUST name **what happened / the resulting condition** (e.g. `\"园区停电\"` -> `\"停电\"`, NEVER a location like `\"园区\"` or a time/weekday like `\"周四\"`).\n\
 - Constraints & habitual norms (`kind = \"constraint\"`): Habitual team practices, routines, conventions, and standing defaults (`\"遇到 X 的时候都 Y\"`, `\"一般不……\"`, `\"从不……\"`, `\"默认……\"`) are `kind = \"constraint\"` just like prohibitions — populate `condition_concept` (`kind = \"condition\"`, `X`) and `action_concept` (`kind = \"action\"`, `Y`).\n\
-- Scope rules (every scope object has keys `scope`, `mentions`, `group_concept`; unused keys are null):\n\
-  * Explicitly speaker-only (\"I personally never book red-eye flights\") => `scope = {{\"scope\": \"speaker_self\", \"mentions\": null, \"group_concept\": null}}`, `ambiguous_scope = null`.\n\
-  * Explicit group (\"our team requires two approvals for every code review\") => `scope = {{\"scope\": \"relation_group\", \"mentions\": null, \"group_concept\": <concept ref of kind group>}}`, `ambiguous_scope = null`.\n\
-  * Explicit named people (\"Dave should not take night shifts next week\") => `scope = {{\"scope\": \"named_mentions\", \"mentions\": [\"Dave\"], \"group_concept\": null}}`, `ambiguous_scope = null`.\n\
-  * Subjectless / unclear who it governs (\"no overtime on weekends\") => `scope = {{\"scope\": \"speaker_self\", \"mentions\": null, \"group_concept\": null}}` AND `ambiguous_scope = {{\"broader_candidate\": {{\"scope\": \"relation_group\", ...}}, \"question\": \"<ask whether it applies only to the speaker or to the whole group>\"}}`.\n\
+- Scope rules (every scope object has keys `scope`, `mentions`, `group_concept`, `target`; unused keys are null):\n\
+  * Explicitly speaker-only (\"I personally never book red-eye flights\") => `scope = {{\"scope\": \"speaker_self\", \"mentions\": null, \"group_concept\": null, \"target\": null}}`, `ambiguous_scope = null`.\n\
+  * Explicit group (\"our team requires two approvals for every code review\") => `scope = {{\"scope\": \"relation_group\", \"mentions\": null, \"group_concept\": <concept ref of kind group>, \"target\": null}}`, `ambiguous_scope = null`.\n\
+  * Explicit named people (\"Dave should not take night shifts next week\") => `scope = {{\"scope\": \"named_mentions\", \"mentions\": [\"Dave\"], \"group_concept\": null, \"target\": null}}`, `ambiguous_scope = null`.\n\
+  * Protected file, directory, or resource target (\"do not edit src/lib.rs without review\") => `scope = {{\"scope\": \"resource\", \"mentions\": null, \"group_concept\": null, \"target\": \"src/lib.rs\"}}`, `ambiguous_scope = null`.\n\
+  * Subjectless / unclear who it governs (\"no overtime on weekends\") => `scope = {{\"scope\": \"speaker_self\", \"mentions\": null, \"group_concept\": null, \"target\": null}}` AND `ambiguous_scope = {{\"broader_candidate\": {{\"scope\": \"relation_group\", ...}}, \"question\": \"<ask whether it applies only to the speaker or to the whole group>\"}}`.\n\
+- CLI Command Guards (`command_guard`, ONLY on `kind = \"constraint\"` or `kind = \"decision\"`; null otherwise):\n\
+  * Populate `command_guard = {{\"forbidden_commands\": [...], \"allowed_commands\": [...], \"required_flags\": [...]}}` whenever a `constraint` or `decision` bans CLI commands (`forbidden_commands`, e.g. `[\"pip install\"]`), names permitted replacement commands (`allowed_commands`, e.g. `[\"uv pip install\"]`), or mandates CLI flags (`required_flags`, e.g. `[\"--schema\"]` or `[\"--locked\"]`).\n\
+  * When a command is prohibited ONLY when missing a required flag (e.g. \"require `prisma migrate deploy --schema`\"), list the base command in `forbidden_commands` (`[\"prisma migrate deploy\"]`) AND the mandatory flag in `required_flags` (`[\"--schema\"]`).\n\
 - Membership (`kind = \"membership\"`, e.g. \"Erin is in our book club\"): populate BOTH `group_concept` (`kind = \"group\"`) and `member_mention` (\"Erin\").\n\
 - `assumed_premise_ids`: include ONLY IDs from `active_decisions` that this claim explicitly presupposes (else `[]`).\n\
 - `quote`: EVERY extracted item MUST set `turn_ordinal` to that turn's exact 0-based integer `N` from `[turn:N]`, and `verbatim_quote` MUST be an exact contiguous substring of that target `<chunk>` turn's text.\n\
@@ -1006,6 +1134,7 @@ mod tests {
         for (name, schema) in [
             ("extraction", extraction_batch_json_schema()),
             ("entailment", entailment_verdict_json_schema()),
+            ("guard_backfill", command_guard_backfill_json_schema()),
         ] {
             assert_eq!(
                 schema.get("type"),

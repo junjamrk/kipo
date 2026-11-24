@@ -148,19 +148,19 @@ kp-connector --state ~/.kp/connectors/state.json sync --kind github --ingested-b
 
 ### 7. Multi-source sleep-time consolidation and skill compilation
 
-`kp dream` consolidates coding sessions, team chat logs, Markdown, PDF, Office, and HTML documents, `http://` and `https://` web links, and timed video or audio transcripts in `.vtt`, `.srt`, `.lrc`, Whisper ASR `.json`, and `.mp4` or `.m4a` sidecar formats into governed declarative rules and `<library>/skills/<slug>/SKILL.md` playbooks:
+`kp dream` consolidates coding sessions, multi-party chat and PR threads, Markdown, PDF, Office, and HTML documents, and `http://` or `https://` web pages into governed declarative rules and `<library>/skills/<slug>/SKILL.md` playbooks:
 
 ```sh
-kp add ./docs ./recordings/onboarding.mp4 --path ~/.kp/personal --as alice
+kp add ./docs ./notes/runbook.docx --path ~/.kp/personal --as alice
 kp add https://example.com/runbook.html --path ~/.kp/personal --as alice
 kp dream --sessions ~/.codex/sessions ~/.claude/projects --path ~/.kp/personal --json
 kp skill list --path ~/.kp/personal --json
 ```
 
-- **Zero-config global model routing.** `kp dream` routes through logged-in host CLIs such as `claude` and `codex` or configured cloud API providers including `openai`, `anthropic`, `dashscope`, `volcengine`, `zhipu`, and `openrouter`. Under `KP_MODEL_POLICY=raw_only`, it runs deterministic local consolidation with zero network egress.
+- **Zero-config global model routing.** `kp dream` routes through logged-in host CLIs such as `claude` and `codex` or configured cloud API providers including `openai`, `anthropic`, `dashscope`, `volcengine`, `zhipu`, and `openrouter`. Under `KP_MODEL_POLICY=raw_only`, it indexes structural L0 chunks with zero network egress and zero heuristic fact fabrication.
 - **Non-blocking background trigger.** `session-end`, `kp add`, and `kp ingest` spawn a detached background `kp dream` subprocess once pending consolidation items reach the threshold.
-- **Deterministic Zep safety scanner and modality anchors.** The scanner rejects literal personal paths, UUIDs, secrets, and hallucinated CLI flags absent from observed traces. Every distilled claim retains exact media timestamps in `start_ms` and `end_ms`, PDF page numbers, and verbatim L0 quotes.
-- **`k-of-N` provenance truth maintenance.** Promotion requires at least 2 independent source or session verifications and 0 hurt outcomes. Withdrawing 1 of 3 independent sources keeps the skill active. Dropping below 2 surviving sources or recording `hurt` feedback retracts `SKILL.md` immediately. Imported community skills stay quarantined with `exec_approved: false` until the local owner runs `kp skill approve <slug>`.
+- **Write-time typed guards, Zep safety scanner, and modality anchors.** Consolidation parses command guards once at write time into top-level `CommandGuardSpec` fields and deterministic `[forbid: ...]` tags. The Zep scanner rejects literal personal paths, UUIDs, secrets, and hallucinated CLI flags absent from observed traces, while preserving exact PDF page numbers, Office sheet or slide coordinates, code symbols, and verbatim L0 quotes.
+- **`k-of-N` provenance truth maintenance and dual-anchor retirement.** Skill promotion requires at least 2 independent session verifications and 0 hurt outcomes. Withdrawing 1 of 3 independent sessions keeps the skill active, while dropping below 2 surviving sessions or recording `hurt` feedback retracts `SKILL.md` immediately. Multi-turn chat decisions track both the proposal `evidence` anchor and the ratifier `quote` anchor, retiring automatically if either message is withdrawn. Imported community skills stay quarantined with `exec_approved: false` until the local owner runs `kp skill approve <slug>`.
 
 ### 8. Isomorphic Community Collaboration (`kp serve --community` / `kp sync`)
 

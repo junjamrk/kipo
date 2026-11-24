@@ -410,6 +410,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             }]
         },
     )?;
@@ -453,6 +454,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             }]
         },
     )?;
@@ -499,6 +501,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                         target_fact_id: superseded_premise_id.clone(),
                     },
                     evidence: None,
+                    command_guard: None,
                 },
                 ModelExtractedAtom {
                     kind: FactKind::Observation,
@@ -522,6 +525,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                     },
                     write_op: ModelWriteOp::Add,
                     evidence: None,
+                    command_guard: None,
                 },
             ]
         },
@@ -588,6 +592,12 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: Some(kp_model::CommandGuardSpec {
+                    forbidden_commands: vec![
+                        "kubectl delete statefulset settlement-ledger".into()
+                    ],
+                    ..Default::default()
+                }),
             }]
         },
     )?;
@@ -630,6 +640,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             }]
         },
     )?;
@@ -679,6 +690,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             }]
         },
     )?;
@@ -726,6 +738,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                     },
                     write_op: ModelWriteOp::Add,
                     evidence: None,
+                    command_guard: None,
                 },
                 ModelExtractedAtom {
                     kind: FactKind::Constraint,
@@ -769,6 +782,7 @@ pub async fn run(cli: &Cli, args: &DemoArgs) -> Result<()> {
                     },
                     write_op: ModelWriteOp::Add,
                     evidence: None,
+                    command_guard: None,
                 },
             ]
         },

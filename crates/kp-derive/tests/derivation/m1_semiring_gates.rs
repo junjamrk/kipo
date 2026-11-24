@@ -106,6 +106,7 @@ async fn raw_only_skip_leaves_zero_unrelated_cache_and_subsequent_host_cli_align
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -141,6 +142,7 @@ async fn raw_only_skip_leaves_zero_unrelated_cache_and_subsequent_host_cli_align
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -322,6 +324,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -354,6 +357,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -386,6 +390,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -418,6 +423,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(AudienceSpec::AllMembers, t0),
@@ -565,6 +571,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -594,6 +601,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &alice_priv_opts,
@@ -688,6 +696,7 @@ async fn viewer_non_interference_byte_for_byte_across_private_quote_events_shari
                 target_fact_id: alice_ev_entails_id,
             },
             evidence: None,
+            command_guard: None,
         }],
         &edit_opts,
     )?;
@@ -828,6 +837,7 @@ async fn speaker_self_event_with_condition_and_action_stays_event_and_collides()
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -861,6 +871,7 @@ async fn speaker_self_event_with_condition_and_action_stays_event_and_collides()
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -951,6 +962,7 @@ fn nl_funnel_preserves_multi_day_spans_and_never_truncates_multi_token_quotes() 
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -983,6 +995,7 @@ fn nl_funnel_preserves_multi_day_spans_and_never_truncates_multi_token_quotes() 
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -1063,6 +1076,7 @@ fn partial_named_mentions_failure_downgrades_entire_atom_to_self_only_with_diagn
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -1091,6 +1105,7 @@ fn partial_named_mentions_failure_downgrades_entire_atom_to_self_only_with_diagn
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -1116,6 +1131,7 @@ fn partial_named_mentions_failure_downgrades_entire_atom_to_self_only_with_diagn
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -1258,6 +1274,7 @@ async fn secondary_premise_validation_blocks_stale_writeback_after_async_judgeme
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -1288,6 +1305,7 @@ async fn secondary_premise_validation_blocks_stale_writeback_after_async_judgeme
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -1400,6 +1418,7 @@ async fn legacy_v1_unbound_alignment_cache_rows_are_ignored_on_upgrade_preservin
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -1432,6 +1451,7 @@ async fn legacy_v1_unbound_alignment_cache_rows_are_ignored_on_upgrade_preservin
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Event,
@@ -1464,6 +1484,7 @@ async fn legacy_v1_unbound_alignment_cache_rows_are_ignored_on_upgrade_preservin
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(AudienceSpec::AllMembers, t0),
@@ -1655,6 +1676,7 @@ fn nl_funnel_resolves_rescheduled_weekday_to_target_and_preserves_multi_clause_w
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             // 2) Multi-clause quote `"周一交提纲，周三做分享"` -> Atom A stays Monday (`2026-11-23`)!
             ModelExtractedAtom {
@@ -1688,6 +1710,7 @@ fn nl_funnel_resolves_rescheduled_weekday_to_target_and_preserves_multi_clause_w
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             // 3) Multi-clause quote `"周一交提纲，周三做分享"` -> Atom B stays Wednesday (`2026-11-25`)!
             ModelExtractedAtom {
@@ -1721,6 +1744,7 @@ fn nl_funnel_resolves_rescheduled_weekday_to_target_and_preserves_multi_clause_w
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -1791,6 +1815,7 @@ fn nl_funnel_resolves_rescheduled_weekday_to_target_and_preserves_multi_clause_w
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from(["alice".parse()?])),
@@ -1909,6 +1934,7 @@ fn expired_lease_commit_staged_extraction_job_fenced_rolls_back_all_fact_and_con
             },
             write_op: ModelWriteOp::Add,
             evidence: None,
+            command_guard: None,
         }],
         &NlFunnelOptions::personal_or_shared(
             AudienceSpec::Explicit(BTreeSet::from([alice.clone()])),
@@ -2017,6 +2043,7 @@ async fn ambiguous_scope_review_hides_and_blocks_resolution_after_supporting_mem
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -2050,6 +2077,7 @@ async fn ambiguous_scope_review_hides_and_blocks_resolution_after_supporting_mem
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &NlFunnelOptions::personal_or_shared(
@@ -2318,6 +2346,7 @@ async fn named_endpoint_facts_never_leak_to_global_host_cli_or_foreign_endpoint_
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
             ModelExtractedAtom {
                 kind: FactKind::Constraint,
@@ -2353,6 +2382,7 @@ async fn named_endpoint_facts_never_leak_to_global_host_cli_or_foreign_endpoint_
                 },
                 write_op: ModelWriteOp::Add,
                 evidence: None,
+                command_guard: None,
             },
         ],
         &corp_opts,

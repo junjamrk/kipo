@@ -400,10 +400,6 @@ fn steps_1_2_hooks_and_funnel(j: &Journey) -> Result<String> {
         "pub fn settle_invoice(cents: u64) -> Result<Receipt, Error> { todo!() }\n",
     )?;
     fs::write(j.workspace.join("notes.md"), "# Billing notes\nfact: kp.code.api_contract = Validate the invoice contract before settlement.\n")?;
-    fs::write(
-        j.workspace.join("meeting.vtt"),
-        "WEBVTT\n\n00:01.250 --> 00:02.750\nInvoicevttanchor\n",
-    )?;
     synthetic_pdf(&j.workspace.join("contract.pdf"))?;
     for client in ["claude-code", "codex"] {
         let result = run(
@@ -427,21 +423,18 @@ fn steps_1_2_hooks_and_funnel(j: &Journey) -> Result<String> {
         }
     }
     let added = run(&j.alice, &["add", path(&j.workspace)?, "--extract"])?;
-    assert_eq!(array(&added)?.len(), 4);
+    assert_eq!(array(&added)?.len(), 3);
     let search = run(
         &j.alice,
         &[
             "search",
-            "Invoicepdfanchor Invoicevttanchor settle_invoice",
+            "Invoicepdfanchor settle_invoice",
             "--limit",
             "100",
         ],
     )?;
     let results = array(&search["results"])?;
     assert!(results.iter().any(|r| r["anchor"]["page"] == 1));
-    assert!(results
-        .iter()
-        .any(|r| r["anchor"]["start_ms"] == 1250 && r["anchor"]["end_ms"] == 2750));
     assert!(results
         .iter()
         .any(|r| r["anchor"]["symbol"] == "settle_invoice"));

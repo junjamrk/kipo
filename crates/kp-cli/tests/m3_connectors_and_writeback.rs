@@ -740,6 +740,11 @@ if rule_quote in body:
             "approx_char_offset": None,
         },
         "write_op": {"op": "add", "target_fact_id": None},
+        "command_guard": {
+            "forbidden_commands": ["drop table orders_ledger"],
+            "allowed_commands": [],
+            "required_flags": [],
+        },
     })
 print(json.dumps({"skip_summary": len(atoms) == 0, "atoms": atoms}, ensure_ascii=False))
 "#;

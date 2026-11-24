@@ -169,7 +169,11 @@ fn effective_atom_kind(atom: &ModelExtractedAtom) -> FactKind {
         || (atom.ambiguous_scope.is_none()
             && matches!(
                 atom.scope,
-                Some(ModelScopeRef::NamedMentions { .. } | ModelScopeRef::RelationGroup { .. })
+                Some(
+                    ModelScopeRef::NamedMentions { .. }
+                        | ModelScopeRef::RelationGroup { .. }
+                        | ModelScopeRef::Resource { .. }
+                )
             ));
     if atom.kind != FactKind::Membership
         && has_cross_person_scope
@@ -250,6 +254,22 @@ fn resolve_scope_ref_lenient(
                 }),
                 None,
             ))
+        }
+        ModelScopeRef::Resource { target } => {
+            let clean = target.trim();
+            if clean.is_empty() {
+                Ok((
+                    None,
+                    Some("empty resource target downgraded to self_only".into()),
+                ))
+            } else {
+                Ok((
+                    Some(GovernedScope::Resource {
+                        target: clean.to_owned(),
+                    }),
+                    None,
+                ))
+            }
         }
     }
 }
@@ -849,6 +869,34 @@ fn stage_extracted_atoms_inner(
                 .unwrap_or_else(|| default_predicate_for_kind(effective_kind).to_owned());
             (subj, pred, Value::Object(obj_map))
         };
+
+        if matches!(effective_kind, FactKind::Constraint | FactKind::Decision)
+            && effective_trust_tier != TrustTier::ExternalUntrusted
+        {
+            if let Value::Object(ref mut map) = object_json {
+                map.insert("guard_checked".into(), json!(true));
+                if let Some(raw_guard) = &atom.command_guard {
+                    let guard = raw_guard.normalized();
+                    if !guard.is_empty() {
+                        map.insert(
+                            "forbidden_commands".into(),
+                            serde_json::to_value(&guard.forbidden_commands)?,
+                        );
+                        map.insert(
+                            "allowed_commands".into(),
+                            serde_json::to_value(&guard.allowed_commands)?,
+                        );
+                        map.insert(
+                            "required_flags".into(),
+                            serde_json::to_value(&guard.required_flags)?,
+                        );
+                        if guard.has_enforced_guard() {
+                            map.insert("hard_guard".into(), json!(true));
+                        }
+                    }
+                }
+            }
+        }
 
         if options.route_policy != ModelRoutePolicy::HostCli {
             if let Value::Object(ref mut map) = object_json {
