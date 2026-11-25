@@ -7,6 +7,7 @@ asset is self-contained: no external URLs, fonts, images, or scripts.
 
 from pathlib import Path
 from xml.sax.saxutils import escape
+import math
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -95,21 +96,35 @@ def style(extra: str = "") -> str:
 
 
 def mark(x: float, y: float, size: float, uid: str) -> str:
-    """The Kipo mark: ink tile, white stem, split chevron, pollen dot. Drawn on a 256 grid."""
+    """Minimalist Phyllotaxis Spore mark: ink squircle, ivory kernel, 21 flat lime Fibonacci seeds."""
+    _ = uid
     s = size / 256
+    golden_angle = math.radians(137.50776405003785)
+    n_seeds = 21
+    seeds = []
+    for i in range(n_seeds):
+        frac = i / (n_seeds - 1)
+        r = 40.0 + 48.0 * math.sqrt((i + 0.35) / n_seeds)
+        ang = i * golden_angle - math.pi / 2.0
+        cx = 128.0 + r * math.cos(ang)
+        cy = 128.0 + r * math.sin(ang)
+        deg = math.degrees(ang)
+        b = 6.8 + 2.4 * frac
+        length = b * 2.05
+        d = (
+            f"M0,0 C{length * 0.36:.2f},{-b * 0.22:.2f} {length * 0.52:.2f},{-b:.2f} {length:.2f},{-b:.2f} "
+            f"A{b:.2f},{b:.2f} 0 1 1 {length:.2f},{b:.2f} "
+            f"C{length * 0.52:.2f},{b:.2f} {length * 0.36:.2f},{b * 0.22:.2f} 0,0 Z"
+        )
+        seeds.append(
+            f'    <path d="{d}" fill="{LIME}" transform="translate({cx:.2f} {cy:.2f}) rotate({deg:.2f})"/>'
+        )
+    seed_block = "\n".join(seeds)
     return f"""<g transform="translate({x} {y}) scale({s:.5f})">
-    <defs>
-      <linearGradient id="tile-{uid}" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="{INK_TOP}"/>
-        <stop offset="1" stop-color="{INK}"/>
-      </linearGradient>
-    </defs>
-    <rect width="256" height="256" rx="60" fill="url(#tile-{uid})"/>
-    <rect x="1.5" y="1.5" width="253" height="253" rx="58.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="3"/>
-    <rect x="56" y="56" width="40" height="144" rx="9" fill="{PAPER}"/>
-    <path d="M110 128 L160 56 L202 56 L152 128 Z" fill="{LIME}"/>
-    <path d="M110 128 L152 128 L202 200 L160 200 Z" fill="{LEAF}"/>
-    <circle cx="188" cy="128" r="13" fill="{AMBER}"/>
+    <rect width="256" height="256" rx="58" fill="{INK}"/>
+    <rect x="1.5" y="1.5" width="253" height="253" rx="56.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="3"/>
+    <circle cx="128" cy="128" r="24" fill="{PAPER}"/>
+{seed_block}
   </g>"""
 
 
