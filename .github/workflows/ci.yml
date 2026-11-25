@@ -30,7 +30,7 @@ jobs:
           - macos-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install stable Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -112,7 +112,7 @@ jobs:
       KP_DISABLE_MODEL_DOWNLOAD: "1"
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Validate Windows PowerShell installer syntax
         shell: pwsh
