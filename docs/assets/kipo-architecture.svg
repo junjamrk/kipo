@@ -1,103 +1,102 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 500" width="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 540" width="100%">
   <style>
     :root {
-      --bg: #FFFFFF;
-      --layer: #F8FAFC;
-      --card: #FFFFFF;
-      --stroke: #CBD5E1;
-      --fg: #0F172A;
-      --muted: #475569;
-      --blue: #0284C7;
-      --green: #059669;
-      --amber: #D97706;
-      --purple: #7C3AED;
+      --bg: #FBFCFD; --card: #FFFFFF; --vault: #FFFFFF; --line: #DCE2EA; --wire: #C3CCD8;
+      --fg: #0B1220; --muted: #5A6678;
+      --cyan: #0B7BC0; --lime: #3B7D0C; --amber: #B7791F; --violet: #6D4AE0;
     }
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #0B111B;
-        --layer: #111927;
-        --card: #172235;
-        --stroke: #293A52;
-        --fg: #F1F5F9;
-        --muted: #94A3B8;
-        --blue: #38BDF8;
-        --green: #34D399;
-        --amber: #FBBF24;
-        --purple: #A78BFA;
+        --bg: #0A0E16; --card: #121A28; --vault: #101827; --line: #243049; --wire: #34415C;
+        --fg: #F4F7FB; --muted: #8C99AD;
+        --cyan: #5CC8FF; --lime: #B4F04A; --amber: #FFC940; --violet: #A894FF;
       }
     }
-    .sans { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
-    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+    .sans { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Helvetica, Arial, sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace; }
   </style>
+  <rect width="1080" height="540" rx="18" fill="var(--bg)"/>
+  <rect x="0.75" y="0.75" width="1078.5" height="538.5" rx="17.25" fill="none" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="540.0" y="50" text-anchor="middle" class="sans" font-size="26" font-weight="800" letter-spacing="-0.5" fill="var(--fg)">How Kipo fits your daily workflow</text>
+  <text x="540.0" y="76" text-anchor="middle" class="sans" font-size="15" fill="var(--muted)">The tools you already use write to one local file. Your agent reads back only what helps.</text>
 
-  <rect width="1080" height="500" rx="16" fill="var(--bg)" stroke="var(--stroke)" stroke-width="1.5"/>
+  <text x="28" y="118" class="mono" font-size="11.5" font-weight="700" letter-spacing="1" fill="var(--muted)">YOU WORK IN</text>
+  <text x="804" y="118" class="mono" font-size="11.5" font-weight="700" letter-spacing="1" fill="var(--muted)">YOUR AGENT GETS</text>
+    <rect x="28" y="132" width="248" height="33" rx="9" fill="var(--card)" stroke="var(--line)"/>
+  <circle cx="46" cy="148.5" r="4" fill="var(--muted)"/>
+  <text x="60" y="153.5" class="sans" font-size="14" font-weight="600" fill="var(--fg)">Claude Code</text>
+  <path d="M276 148.5 C 330 148.5, 330 238.0, 384 238.0" fill="none" stroke="var(--wire)" stroke-width="1.5"/>
+  <rect x="28" y="173" width="248" height="33" rx="9" fill="var(--card)" stroke="var(--line)"/>
+  <circle cx="46" cy="189.5" r="4" fill="var(--muted)"/>
+  <text x="60" y="194.5" class="sans" font-size="14" font-weight="600" fill="var(--fg)">Codex</text>
+  <path d="M276 189.5 C 330 189.5, 330 255.1, 384 255.1" fill="none" stroke="var(--wire)" stroke-width="1.5"/>
+  <rect x="28" y="214" width="248" height="33" rx="9" fill="var(--card)" stroke="var(--line)"/>
+  <circle cx="46" cy="230.5" r="4" fill="var(--muted)"/>
+  <text x="60" y="235.5" class="sans" font-size="14" font-weight="600" fill="var(--fg)">Cursor</text>
+  <path d="M276 230.5 C 330 230.5, 330 272.3, 384 272.3" fill="none" stroke="var(--wire)" stroke-width="1.5"/>
+  <rect x="28" y="255" width="248" height="33" rx="9" fill="var(--card)" stroke="var(--line)"/>
+  <circle cx="46" cy="271.5" r="4" fill="var(--muted)"/>
+  <text x="60" y="276.5" class="sans" font-size="14" font-weight="600" fill="var(--fg)">Windsurf</text>
+  <path d="M276 271.5 C 330 271.5, 330 289.4, 384 289.4" fill="none" stroke="var(--wire)" stroke-width="1.5"/>
+  <rect x="28" y="296" width="248" height="33" rx="9" fill="var(--card)" stroke="var(--line)"/>
+  <circle cx="46" cy="312.5" r="4" fill="var(--muted)"/>
+  <text x="60" y="317.5" class="sans" font-size="14" font-weight="600" fill="var(--fg)">Code and docs</text>
+  <path d="M276 312.5 C 330 312.5, 330 306.6, 384 306.6" fill="none" stroke="var(--wire)" stroke-width="1.5"/>
+  <rect x="28" y="337" width="248" height="33" rx="9" fill="var(--card)" stroke="var(--line)"/>
+  <circle cx="46" cy="353.5" r="4" fill="var(--muted)"/>
+  <text x="60" y="358.5" class="sans" font-size="14" font-weight="600" fill="var(--fg)">PDF and Office files</text>
+  <path d="M276 353.5 C 330 353.5, 330 323.7, 384 323.7" fill="none" stroke="var(--wire)" stroke-width="1.5"/>
+  <rect x="28" y="378" width="248" height="33" rx="9" fill="var(--card)" stroke="var(--line)"/>
+  <circle cx="46" cy="394.5" r="4" fill="var(--muted)"/>
+  <text x="60" y="399.5" class="sans" font-size="14" font-weight="600" fill="var(--fg)">Web pages</text>
+  <path d="M276 394.5 C 330 394.5, 330 340.9, 384 340.9" fill="none" stroke="var(--wire)" stroke-width="1.5"/>
+  <rect x="28" y="419" width="248" height="33" rx="9" fill="var(--card)" stroke="var(--line)"/>
+  <circle cx="46" cy="435.5" r="4" fill="var(--muted)"/>
+  <text x="60" y="440.5" class="sans" font-size="14" font-weight="600" fill="var(--fg)">GitHub and team chat</text>
+  <path d="M276 435.5 C 330 435.5, 330 358.0, 384 358.0" fill="none" stroke="var(--wire)" stroke-width="1.5"/>
+    <rect x="804" y="132" width="248" height="70" rx="12" fill="var(--card)" stroke="var(--line)"/>
+  <rect x="804" y="146" width="4" height="42" rx="2" fill="var(--cyan)"/>
+  <text x="824" y="162" class="sans" font-size="15" font-weight="750" fill="var(--fg)">Recall in every prompt</text>
+  <text x="824" y="184" class="mono" font-size="12.5" fill="var(--cyan)">≤ 250 tokens, ≤ 3 items</text>
+  <path d="M696 253.0 C 750 253.0, 750 167, 804 167" fill="none" stroke="var(--cyan)" stroke-width="1.8" stroke-opacity="0.8"/>
+  <circle cx="804" cy="167" r="3.5" fill="var(--cyan)"/>
+  <rect x="804" y="214" width="248" height="70" rx="12" fill="var(--card)" stroke="var(--line)"/>
+  <rect x="804" y="228" width="4" height="42" rx="2" fill="var(--lime)"/>
+  <text x="824" y="244" class="sans" font-size="15" font-weight="750" fill="var(--fg)">Live command guardrails</text>
+  <text x="824" y="266" class="mono" font-size="12.5" fill="var(--lime)">PreToolUse ask or deny</text>
+  <path d="M696 283.0 C 750 283.0, 750 249, 804 249" fill="none" stroke="var(--lime)" stroke-width="1.8" stroke-opacity="0.8"/>
+  <circle cx="804" cy="249" r="3.5" fill="var(--lime)"/>
+  <rect x="804" y="296" width="248" height="70" rx="12" fill="var(--card)" stroke="var(--line)"/>
+  <rect x="804" y="310" width="4" height="42" rx="2" fill="var(--amber)"/>
+  <text x="824" y="326" class="sans" font-size="15" font-weight="750" fill="var(--fg)">Skills built overnight</text>
+  <text x="824" y="348" class="mono" font-size="12.5" fill="var(--amber)">kp dream → SKILL.md</text>
+  <path d="M696 313.0 C 750 313.0, 750 331, 804 331" fill="none" stroke="var(--amber)" stroke-width="1.8" stroke-opacity="0.8"/>
+  <circle cx="804" cy="331" r="3.5" fill="var(--amber)"/>
+  <rect x="804" y="378" width="248" height="70" rx="12" fill="var(--card)" stroke="var(--line)"/>
+  <rect x="804" y="392" width="4" height="42" rx="2" fill="var(--violet)"/>
+  <text x="824" y="408" class="sans" font-size="15" font-weight="750" fill="var(--fg)">Optional team sync</text>
+  <text x="824" y="430" class="mono" font-size="12.5" fill="var(--violet)">kp publish · kp sync</text>
+  <path d="M696 343.0 C 750 343.0, 750 413, 804 413" fill="none" stroke="var(--violet)" stroke-width="1.8" stroke-opacity="0.8"/>
+  <circle cx="804" cy="413" r="3.5" fill="var(--violet)"/>
 
-  <g transform="translate(28, 24)">
-    <rect width="1024" height="86" rx="12" fill="var(--layer)" stroke="var(--stroke)"/>
-    <text x="20" y="26" class="mono" font-size="11.5" font-weight="700" fill="var(--blue)">PRODUCERS &amp; AGENT HOOKS (EQUAL EXTERNAL CALLERS)</text>
-
-    <rect x="20" y="38" width="232" height="36" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="136" y="61" text-anchor="middle" class="sans" font-size="13" font-weight="600" fill="var(--fg)">Claude Code &amp; Codex Hooks</text>
-
-    <rect x="270" y="38" width="232" height="36" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="386" y="61" text-anchor="middle" class="sans" font-size="13" font-weight="600" fill="var(--fg)">kp-connector (GitHub / Feishu)</text>
-
-    <rect x="520" y="38" width="232" height="36" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="636" y="61" text-anchor="middle" class="sans" font-size="12" font-weight="600" fill="var(--fg)">kp add (Code, PDF, Office, Web)</text>
-
-    <rect x="770" y="38" width="234" height="36" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="887" y="61" text-anchor="middle" class="sans" font-size="13" font-weight="600" fill="var(--fg)">CLI kp ingest · MCP kp_note</text>
+  <rect x="384" y="150" width="312" height="296" rx="22" fill="var(--vault)" stroke="var(--lime)" stroke-width="2"/>
+  <g transform="translate(504.0 180) scale(0.28125)">
+    <defs>
+      <linearGradient id="tile-arch" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#1A2335"/>
+        <stop offset="1" stop-color="#0A0E16"/>
+      </linearGradient>
+    </defs>
+    <rect width="256" height="256" rx="60" fill="url(#tile-arch)"/>
+    <rect x="1.5" y="1.5" width="253" height="253" rx="58.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="3"/>
+    <rect x="56" y="56" width="40" height="144" rx="9" fill="#F4F7FB"/>
+    <path d="M110 128 L160 56 L202 56 L152 128 Z" fill="#B4F04A"/>
+    <path d="M110 128 L152 128 L202 200 L160 200 Z" fill="#7DD321"/>
+    <circle cx="188" cy="128" r="13" fill="#FFC940"/>
   </g>
+  <text x="540.0" y="296" text-anchor="middle" class="mono" font-size="28" font-weight="800" fill="var(--fg)">kp.sqlite</text>
+  <text x="540.0" y="322" text-anchor="middle" class="sans" font-size="14" fill="var(--muted)">one file on your machine</text>
+  <path d="M430 351 l3.5 3.5 l6.5 -7" fill="none" stroke="var(--lime)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><text x="450" y="356" class="sans" font-size="14" fill="var(--fg)">Secrets scrubbed before saving</text><path d="M430 377 l3.5 3.5 l6.5 -7" fill="none" stroke="var(--lime)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><text x="450" y="382" class="sans" font-size="14" fill="var(--fg)">Works fully offline</text><path d="M430 403 l3.5 3.5 l6.5 -7" fill="none" stroke="var(--lime)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><text x="450" y="408" class="sans" font-size="14" fill="var(--fg)">See everything with kp inspect</text>
 
-  <g transform="translate(28, 128)">
-    <rect width="1024" height="62" rx="12" fill="var(--layer)" stroke="var(--blue)" stroke-width="1.5"/>
-    <text x="512" y="27" text-anchor="middle" class="mono" font-size="12.5" font-weight="700" fill="var(--blue)">GOVERNED INGEST &amp; PRIVACY BOUNDARY (Draft 2020-12 JSON Schema · SecretRedactor · RawOnly Gate)</text>
-    <text x="512" y="47" text-anchor="middle" class="sans" font-size="12.5" fill="var(--muted)">Pre-persistence credential scrubbing · Closed unknown-field rejection · Monotonic container roster ceilings · Private 0700 UDS daemon</text>
-  </g>
-
-  <g transform="translate(28, 208)">
-    <rect width="1024" height="152" rx="12" fill="var(--layer)" stroke="var(--green)" stroke-width="1.5"/>
-    <text x="20" y="26" class="mono" font-size="12" font-weight="700" fill="var(--green)">ISOMORPHIC SINGLE-FILE SQLITE ENGINE (kp.sqlite WAL — PERSONAL LIBRARY = 1-MEMBER COMMUNITY)</text>
-
-    <rect x="20" y="42" width="236" height="94" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="36" y="66" class="mono" font-size="12.5" font-weight="700" fill="var(--fg)">L0 Verbatim Storage</text>
-    <text x="36" y="88" class="sans" font-size="12" fill="var(--muted)">raw_blobs + raw_sources</text>
-    <text x="36" y="106" class="sans" font-size="12" fill="var(--muted)">tree-sitter &amp; page anchors</text>
-    <text x="36" y="124" class="sans" font-size="12" fill="var(--muted)">HMAC tombstones + secure_delete</text>
-
-    <rect x="270" y="42" width="236" height="94" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="286" y="66" class="mono" font-size="12.5" font-weight="700" fill="var(--fg)">Hybrid Scoped Indexes</text>
-    <text x="286" y="88" class="sans" font-size="12" fill="var(--muted)">jieba-rs CJK/EN FTS5 BM25</text>
-    <text x="286" y="106" class="sans" font-size="12" fill="var(--muted)">Local ONNX + 8 cloud recipes</text>
-    <text x="286" y="124" class="sans" font-size="12" fill="var(--muted)">RRF fusion + DPP diversity</text>
-
-    <rect x="520" y="42" width="236" height="94" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="536" y="66" class="mono" font-size="12.5" font-weight="700" fill="var(--fg)">L1 &amp; Semiring Proofs</text>
-    <text x="536" y="88" class="sans" font-size="12" fill="var(--muted)">Bitemporal facts &amp; slots</text>
-    <text x="536" y="106" class="sans" font-size="12" fill="var(--muted)">Datalog collisions &amp; JTMS</text>
-    <text x="536" y="124" class="sans" font-size="12" fill="var(--muted)">justifications proof DAG</text>
-
-    <rect x="770" y="42" width="234" height="94" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="786" y="66" class="mono" font-size="12.5" font-weight="700" fill="var(--fg)">Sleep-Time RSI (kp dream)</text>
-    <text x="786" y="88" class="sans" font-size="12" fill="var(--muted)">Contrastive episode mining</text>
-    <text x="786" y="106" class="sans" font-size="12" fill="var(--muted)">CommandGuardSpec extraction</text>
-    <text x="786" y="124" class="sans" font-size="12" fill="var(--muted)">k-of-N SKILL.md promotion</text>
-  </g>
-
-  <g transform="translate(28, 378)">
-    <rect width="1024" height="96" rx="12" fill="var(--layer)" stroke="var(--purple)" stroke-width="1.5"/>
-    <text x="20" y="26" class="mono" font-size="11.5" font-weight="700" fill="var(--purple)">VIEWER-ISOLATED READ, GOVERNANCE &amp; COLLABORATION INTERFACES</text>
-
-    <rect x="20" y="40" width="236" height="42" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="138" y="66" text-anchor="middle" class="sans" font-size="12.5" font-weight="600" fill="var(--fg)">&lt;=250-tok Prompt &amp; PreToolUse</text>
-
-    <rect x="270" y="40" width="236" height="42" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="388" y="66" text-anchor="middle" class="sans" font-size="12.5" font-weight="600" fill="var(--fg)">127.0.0.1 4-Col Web Inspector</text>
-
-    <rect x="520" y="40" width="236" height="42" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="638" y="66" text-anchor="middle" class="sans" font-size="12.5" font-weight="600" fill="var(--fg)">Markdown export / apply / why</text>
-
-    <rect x="770" y="40" width="234" height="42" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="887" y="66" text-anchor="middle" class="sans" font-size="12.5" font-weight="600" fill="var(--fg)">Community REST · MCP · A2A</text>
-  </g>
+  <text x="540.0" y="510" text-anchor="middle" class="mono" font-size="12.5" fill="var(--muted)">Local by default  ·  no cloud account  ·  Apache-2.0</text>
 </svg>

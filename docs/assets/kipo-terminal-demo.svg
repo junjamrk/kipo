@@ -1,94 +1,111 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 470" width="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 478" width="100%">
   <style>
     :root {
-      --bg: #0D1117;
-      --chrome: #161B22;
-      --border: #30363D;
-      --fg: #E6EDF3;
-      --muted: #8B949E;
-      --cyan: #58A6FF;
-      --green: #3FB950;
-      --amber: #D29922;
-      --red: #F85149;
-      --chip: #1F2937;
+      --bg: #0B0F17;
+      --chrome: #121826;
+      --border: #263049;
+      --chip: #1C2537;
+      --fg: #E8EDF5;
+      --muted: #8C99AD;
+      --dim: #5D6A80;
+      --lime: #B4F04A;
+      --cyan: #5CC8FF;
+      --amber: #FFC940;
+      --red: #FF5C5C;
     }
-    @media (prefers-color-scheme: light) {
-      :root {
-        --bg: #0F172A;
-        --chrome: #1E293B;
-        --border: #334155;
-        --fg: #F8FAFC;
-        --muted: #94A3B8;
-        --cyan: #38BDF8;
-        --green: #34D399;
-        --amber: #FBBF24;
-        --red: #FB7185;
-        --chip: #1E293B;
-      }
-    }
-    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 13px; }
-    .title { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12.5px; font-weight: 600; }
-    .s1 { opacity: 1; }
-    .s2 { animation: reveal2 14s infinite; }
-    .s3 { animation: reveal3 14s infinite; }
-    .s4 { animation: reveal4 14s infinite; }
-    .cursor { animation: blink 1s steps(2, end) infinite; }
-    @keyframes reveal2 {
-      0%, 16% { opacity: 0; }
-      22%, 95% { opacity: 1; }
-      99%, 100% { opacity: 0; }
-    }
-    @keyframes reveal3 {
-      0%, 42% { opacity: 0; }
-      48%, 95% { opacity: 1; }
-      99%, 100% { opacity: 0; }
-    }
-    @keyframes reveal4 {
-      0%, 68% { opacity: 0; }
-      74%, 95% { opacity: 1; }
-      99%, 100% { opacity: 0; }
-    }
-    @keyframes blink {
-      0%, 49% { opacity: 1; }
-      50%, 100% { opacity: 0; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+    .term { font-family: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace; font-size: 14px; }
+    .title { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Helvetica, Arial, sans-serif; font-size: 12.5px; font-weight: 600; }
+    .cursor { animation: blink 1.1s steps(2, end) infinite; }
+    @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+    @keyframes r0 { 0%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r0 { animation: r0 18s linear infinite; }
+    @keyframes c0 { 0%, 0% { transform: translateX(0px); animation-timing-function: steps(67, end); } 5.50%, 100% { transform: translateX(576.8px); } }
+    .c0 { animation: c0 18s linear infinite; }
+    @keyframes r1 { 0%, 5.99% { opacity: 0; } 6%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r1 { animation: r1 18s linear infinite; }
+    @keyframes r3 { 0%, 15.99% { opacity: 0; } 16%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r3 { animation: r3 18s linear infinite; }
+    @keyframes r4 { 0%, 18.99% { opacity: 0; } 19%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r4 { animation: r4 18s linear infinite; }
+    @keyframes c4 { 0%, 19% { transform: translateX(0px); animation-timing-function: steps(33, end); } 22.96%, 100% { transform: translateX(290.2px); } }
+    .c4 { animation: c4 18s linear infinite; }
+    @keyframes r5 { 0%, 25.99% { opacity: 0; } 26%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r5 { animation: r5 18s linear infinite; }
+    @keyframes r6 { 0%, 27.99% { opacity: 0; } 28%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r6 { animation: r6 18s linear infinite; }
+    @keyframes r7 { 0%, 29.99% { opacity: 0; } 30%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r7 { animation: r7 18s linear infinite; }
+    @keyframes r9 { 0%, 41.99% { opacity: 0; } 42%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r9 { animation: r9 18s linear infinite; }
+    @keyframes c9 { 0%, 42% { transform: translateX(0px); animation-timing-function: steps(24, end); } 44.88%, 100% { transform: translateX(214.3px); } }
+    .c9 { animation: c9 18s linear infinite; }
+    @keyframes r10 { 0%, 48.99% { opacity: 0; } 49%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r10 { animation: r10 18s linear infinite; }
+    @keyframes r11 { 0%, 50.99% { opacity: 0; } 51%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r11 { animation: r11 18s linear infinite; }
+    @keyframes r12 { 0%, 52.99% { opacity: 0; } 53%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r12 { animation: r12 18s linear infinite; }
+    @keyframes r14 { 0%, 65.99% { opacity: 0; } 66%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r14 { animation: r14 18s linear infinite; }
+    @keyframes c14 { 0%, 66% { transform: translateX(0px); animation-timing-function: steps(24, end); } 68.88%, 100% { transform: translateX(214.3px); } }
+    .c14 { animation: c14 18s linear infinite; }
+    @keyframes r15 { 0%, 71.99% { opacity: 0; } 72%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r15 { animation: r15 18s linear infinite; }
+    @keyframes r16 { 0%, 77.99% { opacity: 0; } 78%, 95% { opacity: 1; } 97.5%, 100% { opacity: 0; } }
+    .r16 { animation: r16 18s linear infinite; }
+    @keyframes s4 { 0%, 65.99% { opacity: 0.35; } 66%, 94.99% { opacity: 1; } 95%, 100% { opacity: 0.35; } }
+    .s4 { animation: s4 18s linear infinite; }
+    @keyframes s3 { 0%, 41.99% { opacity: 0.35; } 42%, 65.99% { opacity: 1; } 66%, 100% { opacity: 0.35; } }
+    .s3 { animation: s3 18s linear infinite; }
+    @keyframes s2 { 0%, 15.99% { opacity: 0.35; } 16%, 41.99% { opacity: 1; } 42%, 100% { opacity: 0.35; } }
+    .s2 { animation: s2 18s linear infinite; }
+    @keyframes s1 { 0%, 0% { opacity: 0.35; } 0%, 15.99% { opacity: 1; } 16%, 100% { opacity: 0.35; } }
+    .s1 { animation: s1 18s linear infinite; }
+    @media (prefers-reduced-motion: reduce) {
+      .term g, .steps g { animation: none !important; opacity: 1 !important; }
+      .cover { display: none; }
     }
   </style>
 
-  <rect width="980" height="470" rx="14" fill="var(--bg)" stroke="var(--border)" stroke-width="1.5"/>
-  <path d="M 1 14 Q 1 1 14 1 L 966 1 Q 979 1 979 14 L 979 40 L 1 40 Z" fill="var(--chrome)"/>
-  <line x1="0" y1="40" x2="980" y2="40" stroke="var(--border)" stroke-width="1"/>
-  <circle cx="22" cy="20" r="6" fill="#FF5F56"/>
-  <circle cx="42" cy="20" r="6" fill="#FFBD2E"/>
-  <circle cx="62" cy="20" r="6" fill="#27C93F"/>
-  <text x="490" y="25" text-anchor="middle" class="title" fill="var(--muted)">kp - personal &amp; team memory loop (100% local SQLite)</text>
+  <rect width="980" height="478" rx="14" fill="var(--bg)"/>
+  <path d="M14 0.75 H966 Q979.25 0.75 979.25 14 V42 H0.75 V14 Q0.75 0.75 14 0.75 Z" fill="var(--chrome)"/>
+  <rect x="0.75" y="0.75" width="978.5" height="476.5" rx="13.25" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+  <line x1="0.75" y1="42" x2="979.25" y2="42" stroke="var(--border)"/>
+  <circle cx="24" cy="21" r="6" fill="#FF5F57"/>
+  <circle cx="44" cy="21" r="6" fill="#FEBC2E"/>
+  <circle cx="64" cy="21" r="6" fill="#28C840"/>
+  <g transform="translate(88 11) scale(0.07812)">
+    <defs>
+      <linearGradient id="tile-term" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#1A2335"/>
+        <stop offset="1" stop-color="#0A0E16"/>
+      </linearGradient>
+    </defs>
+    <rect width="256" height="256" rx="60" fill="url(#tile-term)"/>
+    <rect x="1.5" y="1.5" width="253" height="253" rx="58.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="3"/>
+    <rect x="56" y="56" width="40" height="144" rx="9" fill="#F4F7FB"/>
+    <path d="M110 128 L160 56 L202 56 L152 128 Z" fill="#B4F04A"/>
+    <path d="M110 128 L152 128 L202 200 L160 200 Z" fill="#7DD321"/>
+    <circle cx="188" cy="128" r="13" fill="#FFC940"/>
+  </g>
+  <text x="116" y="25.5" class="title" fill="var(--muted)">kp · your agent's memory, one local file</text>
+  <g class="steps"><g class="s4"><rect x="874.8" y="12" width="71.2" height="18" rx="9" fill="var(--chip)"/><text x="910.4" y="25" text-anchor="middle" class="mono" font-size="11" fill="var(--fg)">4 forget</text></g><g class="s3"><rect x="804.8" y="12" width="64.0" height="18" rx="9" fill="var(--chip)"/><text x="836.8" y="25" text-anchor="middle" class="mono" font-size="11" fill="var(--fg)">3 guard</text></g><g class="s2"><rect x="727.6" y="12" width="71.2" height="18" rx="9" fill="var(--chip)"/><text x="763.2" y="25" text-anchor="middle" class="mono" font-size="11" fill="var(--fg)">2 recall</text></g><g class="s1"><rect x="643.2" y="12" width="78.4" height="18" rx="9" fill="var(--chip)"/><text x="682.4" y="25" text-anchor="middle" class="mono" font-size="11" fill="var(--fg)">1 connect</text></g></g>
 
-  <g transform="translate(28, 70)" class="mono">
-    <g class="s1">
-      <text x="0" y="0"><tspan fill="var(--green)">$</tspan> <tspan fill="var(--fg)">kp init --path ~/.kp/personal --owner alice &amp;&amp; kp connect claude-code --project .</tspan></text>
-      <text x="0" y="24" fill="var(--muted)">Initialized personal library (local:bge-small-zh-v1.5, 512d) · Installed async hooks</text>
-
-      <text x="0" y="58"><tspan fill="var(--green)">$</tspan> <tspan fill="var(--fg)">kp remember --subject "prod-db" --predicate kp.ops.freeze \</tspan></text>
-      <text x="0" y="80" fill="var(--fg)">    --value "Release freeze until Monday 09:00 UTC" --kind constraint \</text>
-      <text x="0" y="102" fill="var(--fg)">    --tags "release,[forbid: sqlx migrate]" --logical-key release-freeze --audience alice,bob</text>
-    </g>
-
-    <g class="s2">
-      <text x="0" y="140"><tspan fill="var(--cyan)">[UserPromptSubmit &lt;= 250 tok]</tspan> <tspan fill="var(--muted)">Prompt: "Roll out billing schema migration"</tspan></text>
-      <text x="0" y="164" fill="var(--green)">  &lt;kp-context&gt; [constraint] prod-db: Release freeze until Monday 09:00 UTC [kp-ref:a81f29c4]</text>
-      <text x="0" y="186" fill="var(--muted)">  &#8627; author=alice · audience=&#123;alice,bob&#125; · active validity window</text>
-    </g>
-
-    <g class="s3">
-      <text x="0" y="226"><tspan fill="var(--amber)">[PreToolUse Guard]</tspan> <tspan fill="var(--fg)">Tool: Bash("sqlx migrate run")</tspan></text>
-      <text x="0" y="250" fill="var(--red)">  blocked -&gt; Claude Code: permissionDecision="ask" | Codex: permissionDecision="deny"</text>
-      <text x="0" y="272" fill="var(--muted)">  reason: matches [forbid: sqlx migrate] on [kp-ref:a81f29c4] (override: kp allow kp-ref:a81f29c4)</text>
-    </g>
-
-    <g class="s4">
-      <text x="0" y="312"><tspan fill="var(--green)">$</tspan> <tspan fill="var(--fg)">kp forget release-freeze &amp;&amp; kp search "sqlx migrate" --as carol --json</tspan></text>
-      <text x="0" y="336" fill="var(--green)">  withdrew release-freeze -&gt; dependent warnings invalidated · carol results: [] (zero leakage)</text>
-      <text x="0" y="370"><tspan fill="var(--green)">$</tspan> <tspan fill="var(--fg)">kp demo</tspan></text>
-      <rect x="86" y="356" width="9" height="17" fill="var(--cyan)" class="cursor"/>
-    </g>
+  <g class="term" transform="translate(30 0)">
+        <g class="r0"><text x="0" y="82" xml:space="preserve"><tspan fill="var(--lime)" font-weight="700">$ </tspan><tspan fill="var(--fg)">kp connect claude-code --project . --path ~/.kp/personal --as alice</tspan></text><rect class="cover c0" x="16.9" y="66" width="576.8" height="22" fill="var(--bg)"/></g>
+    <g class="r1"><text x="0" y="107" xml:space="preserve"><tspan fill="var(--lime)" font-weight="700">✓ </tspan><tspan fill="var(--fg)">hooks installed  </tspan><tspan fill="var(--muted)">SessionStart · UserPromptSubmit · PreToolUse · Stop</tspan></text></g>
+    <g class="r3"><text x="0" y="146" xml:space="preserve"><tspan fill="var(--dim)"># next morning: new session, empty context window</tspan></text></g>
+    <g class="r4"><text x="0" y="171" xml:space="preserve"><tspan fill="var(--cyan)" font-weight="700">claude › </tspan><tspan fill="var(--fg)">fix the flaky settle_invoice test</tspan></text><rect class="cover c4" x="75.9" y="155" width="290.2" height="22" fill="var(--bg)"/></g>
+    <g class="r5"><text x="0" y="196" xml:space="preserve"><tspan fill="var(--cyan)" font-weight="700">kp ▸ </tspan><tspan fill="var(--cyan)">recalled 2 memories in 186 tokens</tspan></text></g>
+    <g class="r6"><text x="0" y="221" xml:space="preserve"><tspan fill="var(--amber)" font-weight="700">  [dead-end]   </tspan><tspan fill="var(--fg)">Retrying the HTTP mock never helped. The race is the lock order.</tspan></text></g>
+    <g class="r7"><text x="0" y="246" xml:space="preserve"><tspan fill="var(--amber)" font-weight="700">  [constraint] </tspan><tspan fill="var(--fg)">Database freeze until Monday 09:00 UTC. No schema migrations.</tspan></text></g>
+    <g class="r9"><text x="0" y="285" xml:space="preserve"><tspan fill="var(--cyan)" font-weight="700">claude › </tspan><tspan fill="var(--fg)">Bash("sqlx migrate run")</tspan></text><rect class="cover c9" x="75.9" y="269" width="214.3" height="22" fill="var(--bg)"/></g>
+    <g class="r10"><text x="0" y="310" xml:space="preserve"><tspan fill="var(--red)" font-weight="700">✕ BLOCKED </tspan><tspan fill="var(--red)">by PreToolUse  matches [forbid: sqlx migrate]</tspan></text></g>
+    <g class="r11"><text x="0" y="335" xml:space="preserve"><tspan fill="var(--muted)">  why       </tspan><tspan fill="var(--fg)">Database freeze until Monday 09:00 UTC  [kp-ref:a81f29c4]</tspan></text></g>
+    <g class="r12"><text x="0" y="360" xml:space="preserve"><tspan fill="var(--muted)">  override  </tspan><tspan fill="var(--lime)">kp allow kp-ref:a81f29c4</tspan><tspan fill="var(--muted)">   single use, expires in 10 min</tspan></text></g>
+    <g class="r14"><text x="0" y="399" xml:space="preserve"><tspan fill="var(--lime)" font-weight="700">$ </tspan><tspan fill="var(--fg)">kp forget release-freeze</tspan></text><rect class="cover c14" x="16.9" y="383" width="214.3" height="22" fill="var(--bg)"/></g>
+    <g class="r15"><text x="0" y="424" xml:space="preserve"><tspan fill="var(--lime)" font-weight="700">✓ </tspan><tspan fill="var(--fg)">withdrew release-freeze  </tspan><tspan fill="var(--muted)">1 dependent warning cleared in 0 ms</tspan></text></g>
+    <g class="r16"><text x="0" y="449" xml:space="preserve"><tspan fill="var(--lime)" font-weight="700">$ </tspan></text><rect class="cursor" x="16.9" y="435" width="9" height="18" rx="1" fill="var(--lime)"/></g>
   </g>
 </svg>

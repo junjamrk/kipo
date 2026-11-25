@@ -1,14 +1,72 @@
 #!/usr/bin/env python3
-"""Deterministically generate Kipo SVG visual assets under docs/assets/."""
+"""Deterministically generate Kipo SVG visual assets under docs/assets/.
+
+Run `python3 scripts/render_readme_assets.py` after editing this file. Every
+asset is self-contained: no external URLs, fonts, images, or scripts.
+"""
 
 from pathlib import Path
+from xml.sax.saxutils import escape
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parent.parent
 ASSETS = ROOT / "docs" / "assets"
 
-FONT_SANS = 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif'
-FONT_MONO = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
+SANS = 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Helvetica, Arial, sans-serif'
+MONO = 'ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace'
+
+# Brand palette. The video trailer uses the same values.
+INK = "#0A0E16"
+INK_TOP = "#1A2335"
+INK_RAISED = "#121A28"
+INK_LINE = "#243049"
+PAPER = "#F4F7FB"
+MUTED = "#8C99AD"
+LIME = "#B4F04A"
+LEAF = "#7DD321"
+AMBER = "#FFC940"
+RED = "#FF5C5C"
+CYAN = "#5CC8FF"
+
+DARK = {
+    "bg": INK,
+    "card": INK_RAISED,
+    "line": INK_LINE,
+    "fg": PAPER,
+    "muted": MUTED,
+    "lime": LIME,
+    "lime_text": LIME,
+    "lime_soft": "#1C2A12",
+    "cyan": CYAN,
+    "cyan_soft": "#10263A",
+    "amber": AMBER,
+    "amber_soft": "#2E2510",
+    "red": RED,
+    "red_soft": "#33161A",
+    "badge": "#18233A",
+    "glow": LIME,
+    "glow_opacity": "0.16",
+}
+
+LIGHT = {
+    "bg": "#FBFCFD",
+    "card": "#FFFFFF",
+    "line": "#DCE2EA",
+    "fg": "#0B1220",
+    "muted": "#5A6678",
+    "lime": LEAF,
+    "lime_text": "#3B7D0C",
+    "lime_soft": "#EEF9DD",
+    "cyan": "#0B7BC0",
+    "cyan_soft": "#E3F2FC",
+    "amber": "#B7791F",
+    "amber_soft": "#FDF3DC",
+    "red": "#D93636",
+    "red_soft": "#FDE8E8",
+    "badge": "#F1F4F8",
+    "glow": LEAF,
+    "glow_opacity": "0.12",
+}
 
 
 def write_svg(path: Path, content: str) -> None:
@@ -22,521 +80,498 @@ def write_svg(path: Path, content: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def logo_svg() -> str:
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
-  <defs>
-    <linearGradient id="kp-bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0B1322"/>
-      <stop offset="100%" stop-color="#132238"/>
-    </linearGradient>
-    <linearGradient id="kp-rim" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#38BDF8"/>
-      <stop offset="55%" stop-color="#34D399"/>
-      <stop offset="100%" stop-color="#FBBF24"/>
-    </linearGradient>
-    <style>
-      .mono {{ font-family: {FONT_MONO}; }}
-    </style>
-  </defs>
-  <rect x="8" y="8" width="240" height="240" rx="54" fill="url(#kp-bg)" stroke="url(#kp-rim)" stroke-width="5"/>
-  <rect x="24" y="24" width="208" height="208" rx="40" fill="none" stroke="#1E3352" stroke-width="1.5"/>
+def t(s: str) -> str:
+    return escape(s)
 
-  <circle cx="128" cy="116" r="68" fill="none" stroke="#1B2E4B" stroke-width="1.5" stroke-dasharray="5 5"/>
 
-  <line x1="76" y1="78" x2="180" y2="72" stroke="#38BDF8" stroke-width="6" stroke-linecap="round"/>
-  <line x1="76" y1="78" x2="126" y2="164" stroke="#38BDF8" stroke-width="6" stroke-linecap="round"/>
-  <line x1="180" y1="72" x2="126" y2="164" stroke="#34D399" stroke-width="6" stroke-linecap="round"/>
-  <line x1="76" y1="78" x2="128" y2="114" stroke="#38BDF8" stroke-width="3" stroke-opacity="0.65"/>
-  <line x1="180" y1="72" x2="128" y2="114" stroke="#34D399" stroke-width="3" stroke-opacity="0.65"/>
-  <line x1="126" y1="164" x2="128" y2="114" stroke="#FBBF24" stroke-width="3" stroke-opacity="0.75"/>
+def style(extra: str = "") -> str:
+    return (
+        "<style>\n"
+        f"    .sans {{ font-family: {SANS}; }}\n"
+        f"    .mono {{ font-family: {MONO}; }}\n"
+        f"{extra}"
+        "  </style>"
+    )
 
-  <circle cx="128" cy="114" r="10" fill="#0F172A" stroke="#E2E8F0" stroke-width="3"/>
-  <circle cx="76" cy="78" r="19" fill="#0F2942" stroke="#38BDF8" stroke-width="4"/>
-  <circle cx="76" cy="78" r="8" fill="#38BDF8"/>
 
-  <circle cx="180" cy="72" r="17" fill="#0D2E27" stroke="#34D399" stroke-width="4"/>
-  <circle cx="180" cy="72" r="7" fill="#34D399"/>
+def mark(x: float, y: float, size: float, uid: str) -> str:
+    """The Kipo mark: ink tile, white stem, split chevron, pollen dot. Drawn on a 256 grid."""
+    s = size / 256
+    return f"""<g transform="translate({x} {y}) scale({s:.5f})">
+    <defs>
+      <linearGradient id="tile-{uid}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="{INK_TOP}"/>
+        <stop offset="1" stop-color="{INK}"/>
+      </linearGradient>
+    </defs>
+    <rect width="256" height="256" rx="60" fill="url(#tile-{uid})"/>
+    <rect x="1.5" y="1.5" width="253" height="253" rx="58.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="3"/>
+    <rect x="56" y="56" width="40" height="144" rx="9" fill="{PAPER}"/>
+    <path d="M110 128 L160 56 L202 56 L152 128 Z" fill="{LIME}"/>
+    <path d="M110 128 L152 128 L202 200 L160 200 Z" fill="{LEAF}"/>
+    <circle cx="188" cy="128" r="13" fill="{AMBER}"/>
+  </g>"""
 
-  <circle cx="126" cy="164" r="19" fill="#2B2110" stroke="#FBBF24" stroke-width="4"/>
-  <circle cx="126" cy="164" r="8" fill="#FBBF24"/>
 
-  <rect x="86" y="192" width="84" height="32" rx="10" fill="#16253B" stroke="#2D466B" stroke-width="1.5"/>
-  <text x="128" y="214" text-anchor="middle" class="mono" font-size="19" font-weight="800" fill="#F8FAFC">kp</text>
-</svg>"""
+def pill(x: float, y: float, label: str, fg: str, bg: str, stroke: str, size: float = 12, h: float = 24, char_w: float = 0.62) -> str:
+    w = len(label) * size * char_w + 22
+    return f"""<g transform="translate({x} {y})">
+      <rect width="{w:.1f}" height="{h}" rx="{h / 2}" fill="{bg}" stroke="{stroke}"/>
+      <text x="{w / 2:.1f}" y="{h / 2 + size * 0.36:.1f}" text-anchor="middle" class="mono" font-size="{size}" font-weight="700" fill="{fg}">{t(label)}</text>
+    </g>"""
+
+
+# Small 24x24 line icons, drawn around a 0..24 box.
+def icon_recall(color: str) -> str:
+    return f"""<path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3" fill="none" stroke="{color}" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M3.5 3.8v4.6h4.6" fill="none" stroke="{color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M12 8v4.4l2.8 1.8" fill="none" stroke="{color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>"""
+
+
+def icon_shield(color: str) -> str:
+    return f"""<path d="M12 2.5l8 3v6.2c0 4.9-3.4 8.6-8 9.8-4.6-1.2-8-4.9-8-9.8V5.5z" fill="none" stroke="{color}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M9 9l6 6M15 9l-6 6" stroke="{color}" stroke-width="2.4" stroke-linecap="round"/>"""
+
+
+def icon_moon(color: str) -> str:
+    return f"""<path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z" fill="none" stroke="{color}" stroke-width="2.4" stroke-linejoin="round"/>
+      <path d="M17 3v4M15 5h4" stroke="{color}" stroke-width="2" stroke-linecap="round"/>"""
 
 
 def hero_svg(dark: bool) -> str:
-    if dark:
-        bg = "#0B111B"
-        card = "#121B2A"
-        stroke = "#24324A"
-        fg = "#F0F6FC"
-        muted = "#94A3B8"
-        accent = "#38BDF8"
-        accent_soft = "#0F2942"
-        green = "#34D399"
-        green_soft = "#0D2E27"
-        amber = "#FBBF24"
-        badge_bg = "#172336"
-    else:
-        bg = "#F8FAFC"
-        card = "#FFFFFF"
-        stroke = "#CBD5E1"
-        fg = "#0F172A"
-        muted = "#475569"
-        accent = "#0284C7"
-        accent_soft = "#E0F2FE"
-        green = "#059669"
-        green_soft = "#D1FAE5"
-        amber = "#D97706"
-        badge_bg = "#EFF6FF"
-
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 290" width="100%">
+    c = DARK if dark else LIGHT
+    w, h = 1200, 400
+    cards = [
+        ("recall", "Cross-session recall", "Yesterday's fix, back in today's prompt.", "≤ 250 tokens", c["cyan"], c["cyan_soft"], icon_recall),
+        ("shield", "Live command shield", "Stops banned commands before they run.", "PreToolUse", c["lime_text"], c["lime_soft"], icon_shield),
+        ("dream", "Overnight skill evolution", "Dead ends become SKILL.md while you sleep.", "kp dream", c["amber"], c["amber_soft"], icon_moon),
+    ]
+    card_w, gap, x0, y0, card_h = 354, 21, 48, 214, 140
+    card_svg = []
+    for i, (_, title, desc, chip, accent, soft, icon) in enumerate(cards):
+        x = x0 + i * (card_w + gap)
+        chip_w = len(chip) * 12 * 0.62 + 22
+        card_svg.append(f"""<g transform="translate({x} {y0})">
+    <rect width="{card_w}" height="{card_h}" rx="16" fill="{c['card']}" stroke="{c['line']}" stroke-width="1.5"/>
+    <rect x="24" y="22" width="40" height="40" rx="11" fill="{soft}"/>
+    <g transform="translate(32 30) scale(1)">{icon(accent)}</g>
+    <rect x="{card_w - 24 - chip_w:.1f}" y="30" width="{chip_w:.1f}" height="24" rx="12" fill="none" stroke="{accent}" stroke-opacity="0.55"/>
+    <text x="{card_w - 24 - chip_w / 2:.1f}" y="46.5" text-anchor="middle" class="mono" font-size="12" font-weight="700" fill="{accent}">{t(chip)}</text>
+    <text x="24" y="94" class="sans" font-size="20" font-weight="750" fill="{c['fg']}" letter-spacing="-0.2">{t(title)}</text>
+    <text x="24" y="120" class="sans" font-size="14.5" fill="{c['muted']}">{t(desc)}</text>
+  </g>""")
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="100%">
   <defs>
-    <style>
-      .sans {{ font-family: {FONT_SANS}; }}
-      .mono {{ font-family: {FONT_MONO}; }}
-    </style>
+    <radialGradient id="hero-glow" cx="0.86" cy="0.05" r="0.6">
+      <stop offset="0" stop-color="{c['glow']}" stop-opacity="{c['glow_opacity']}"/>
+      <stop offset="1" stop-color="{c['glow']}" stop-opacity="0"/>
+    </radialGradient>
   </defs>
-  <rect width="1200" height="290" rx="18" fill="{bg}" stroke="{stroke}" stroke-width="1.5"/>
+  {style()}
+  <rect width="{w}" height="{h}" rx="20" fill="{c['bg']}"/>
+  <rect width="{w}" height="{h}" rx="20" fill="url(#hero-glow)"/>
+  <rect x="0.75" y="0.75" width="{w - 1.5}" height="{h - 1.5}" rx="19.25" fill="none" stroke="{c['line']}" stroke-width="1.5"/>
 
-  <g transform="translate(48, 42)">
-    <rect width="68" height="68" rx="16" fill="{accent_soft}" stroke="{accent}" stroke-width="2"/>
-    <circle cx="24" cy="24" r="6" fill="{accent}"/>
-    <circle cx="46" cy="22" r="5" fill="{green}"/>
-    <circle cx="35" cy="46" r="6" fill="{amber}"/>
-    <line x1="24" y1="24" x2="46" y2="22" stroke="{accent}" stroke-width="2"/>
-    <line x1="24" y1="24" x2="35" y2="46" stroke="{accent}" stroke-width="2"/>
-    <line x1="46" y1="22" x2="35" y2="46" stroke="{green}" stroke-width="2"/>
+  {mark(48, 46, 104, 'hero')}
+  <text x="176" y="104" class="sans" font-size="62" font-weight="800" letter-spacing="-2" fill="{c['fg']}">Kipo</text>
+  <rect x="326" y="62" width="62" height="38" rx="10" fill="{c['badge']}" stroke="{c['line']}"/>
+  <text x="357" y="88" text-anchor="middle" class="mono" font-size="20" font-weight="800" fill="{c['lime_text']}">kp</text>
+  <text x="178" y="140" class="sans" font-size="21" font-weight="600" fill="{c['fg']}">Your coding agent remembers yesterday's fix and refuses the commands you banned.</text>
+  <text x="178" y="170" class="mono" font-size="13.5" fill="{c['muted']}">Claude Code · Codex · Cursor · Windsurf  ·  one local kp.sqlite file  ·  no cloud account</text>
 
-    <text x="88" y="36" class="sans" font-size="34" font-weight="800" fill="{fg}">Kipo</text>
-    <rect x="176" y="10" width="58" height="32" rx="8" fill="{badge_bg}" stroke="{stroke}" stroke-width="1"/>
-    <text x="205" y="31" text-anchor="middle" class="mono" font-size="18" font-weight="700" fill="{accent}">kp</text>
-
-    <text x="88" y="64" class="sans" font-size="17" font-weight="500" fill="{muted}">
-      Local-first personal and team memory database for AI coding agents, backed by one SQLite file.
-    </text>
-  </g>
-
-  <g transform="translate(48, 138)">
-    <rect x="0" y="0" width="252" height="108" rx="12" fill="{card}" stroke="{stroke}" stroke-width="1.5"/>
-    <text x="20" y="30" class="mono" font-size="12" font-weight="700" fill="{accent}">01  CAPTURE &amp; INGEST</text>
-    <text x="20" y="55" class="sans" font-size="15" font-weight="700" fill="{fg}">Non-blocking agent hooks</text>
-    <text x="20" y="77" class="sans" font-size="13" fill="{muted}">Claude Code, Codex, MCP, files,</text>
-    <text x="20" y="95" class="sans" font-size="13" fill="{muted}">GitHub, and Feishu via JSONL</text>
-
-    <path d="M 258 54 L 284 54" stroke="{accent}" stroke-width="2" fill="none"/>
-    <polygon points="284,49 294,54 284,59" fill="{accent}"/>
-
-    <rect x="300" y="0" width="268" height="108" rx="12" fill="{card}" stroke="{stroke}" stroke-width="1.5"/>
-    <text x="320" y="30" class="mono" font-size="12" font-weight="700" fill="{green}">02  SINGLE-FILE ENGINE</text>
-    <text x="320" y="55" class="sans" font-size="15" font-weight="700" fill="{fg}">Isomorphic kp.sqlite (WAL)</text>
-    <text x="320" y="77" class="sans" font-size="13" fill="{muted}">Redacted L0 blobs, CJK FTS5,</text>
-    <text x="320" y="95" class="sans" font-size="13" fill="{muted}">local ONNX vectors, bitemporal L1</text>
-
-    <path d="M 574 54 L 600 54" stroke="{green}" stroke-width="2" fill="none"/>
-    <polygon points="600,49 610,54 600,59" fill="{green}"/>
-
-    <rect x="616" y="0" width="252" height="108" rx="12" fill="{card}" stroke="{stroke}" stroke-width="1.5"/>
-    <text x="636" y="30" class="mono" font-size="12" font-weight="700" fill="{amber}">03  PROVENANCE SEMIRING</text>
-    <text x="636" y="55" class="sans" font-size="15" font-weight="700" fill="{fg}">Read-time visibility proofs</text>
-    <text x="636" y="77" class="sans" font-size="13" fill="{muted}">Zero copied ACLs; instant forget,</text>
-    <text x="636" y="95" class="sans" font-size="13" fill="{muted}">expiry, and roster contraction</text>
-
-    <path d="M 874 54 L 900 54" stroke="{amber}" stroke-width="2" fill="none"/>
-    <polygon points="900,49 910,54 900,59" fill="{amber}"/>
-
-    <rect x="916" y="0" width="188" height="108" rx="12" fill="{green_soft}" stroke="{green}" stroke-width="1.5"/>
-    <text x="934" y="30" class="mono" font-size="12" font-weight="700" fill="{green}">04  GUARDED ACTION</text>
-    <text x="934" y="55" class="sans" font-size="15" font-weight="700" fill="{fg}">&lt;= 250-tok recall</text>
-    <text x="934" y="77" class="sans" font-size="13" fill="{muted}">PreToolUse guards,</text>
-    <text x="934" y="95" class="sans" font-size="13" fill="{muted}">why proofs, kp dream</text>
-  </g>
+  {''.join(card_svg)}
 </svg>"""
+
+
+def logo_svg() -> str:
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Kipo</title>
+  {mark(0, 0, 256, 'logo')}
+</svg>"""
+
+
+# Terminal demo -----------------------------------------------------------
+
+TERM_W, TERM_H = 980, 478
+CYCLE_S = 18
+CHAR_W = 8.43  # 14px monospace advance
+BOLD = ' font-weight="700"'
 
 
 def terminal_demo_svg() -> str:
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 470" width="100%">
+    # Each row: (step start %, kind, segments). kind "cmd" types itself in.
+    # segments: list of (text, color var, bold).
+    rows = [
+        (0, "cmd", [("$ ", "--lime", True), ("kp connect claude-code --project . --path ~/.kp/personal --as alice", "--fg", False)]),
+        (6, "out", [("✓ ", "--lime", True), ("hooks installed  ", "--fg", False), ("SessionStart · UserPromptSubmit · PreToolUse · Stop", "--muted", False)]),
+        (None, "gap", []),
+        (16, "out", [("# next morning: new session, empty context window", "--dim", False)]),
+        (19, "cmd", [("claude › ", "--cyan", True), ("fix the flaky settle_invoice test", "--fg", False)]),
+        (26, "out", [("kp ▸ ", "--cyan", True), ("recalled 2 memories in 186 tokens", "--cyan", False)]),
+        (28, "out", [("  [dead-end]   ", "--amber", True), ("Retrying the HTTP mock never helped. The race is the lock order.", "--fg", False)]),
+        (30, "out", [("  [constraint] ", "--amber", True), ("Database freeze until Monday 09:00 UTC. No schema migrations.", "--fg", False)]),
+        (None, "gap", []),
+        (42, "cmd", [("claude › ", "--cyan", True), ("Bash(\"sqlx migrate run\")", "--fg", False)]),
+        (49, "out", [("✕ BLOCKED ", "--red", True), ("by PreToolUse  matches [forbid: sqlx migrate]", "--red", False)]),
+        (51, "out", [("  why       ", "--muted", False), ("Database freeze until Monday 09:00 UTC  [kp-ref:a81f29c4]", "--fg", False)]),
+        (53, "out", [("  override  ", "--muted", False), ("kp allow kp-ref:a81f29c4", "--lime", False), ("   single use, expires in 10 min", "--muted", False)]),
+        (None, "gap", []),
+        (66, "cmd", [("$ ", "--lime", True), ("kp forget release-freeze", "--fg", False)]),
+        (72, "out", [("✓ ", "--lime", True), ("withdrew release-freeze  ", "--fg", False), ("1 dependent warning cleared in 0 ms", "--muted", False)]),
+        (78, "prompt", [("$ ", "--lime", True)]),
+    ]
+
+    css_rules = []
+    body = []
+    y = 82
+    for i, (start, kind, segs) in enumerate(rows):
+        if kind == "gap":
+            y += 14
+            continue
+        assert start is not None
+        if start == 0:
+            css_rules.append(f"    @keyframes r{i} {{ 0%, 95% {{ opacity: 1; }} 97.5%, 100% {{ opacity: 0; }} }}")
+        else:
+            css_rules.append(
+                f"    @keyframes r{i} {{ 0%, {start - 0.01}% {{ opacity: 0; }} {start}%, 95% {{ opacity: 1; }} 97.5%, 100% {{ opacity: 0; }} }}"
+            )
+        css_rules.append(f"    .r{i} {{ animation: r{i} {CYCLE_S}s linear infinite; }}")
+        spans = "".join(
+            f'<tspan fill="var({color})"{BOLD if bold else ""}>{t(text)}</tspan>' for text, color, bold in segs
+        )
+        line = f'<text x="0" y="{y}" xml:space="preserve">{spans}</text>'
+        extra = ""
+        if kind == "cmd":
+            prefix_w = len(segs[0][0]) * CHAR_W
+            typed = len(segs[1][0])
+            type_pct = min(5.5, 0.12 * typed)
+            css_rules.append(
+                f"    @keyframes c{i} {{ 0%, {start}% {{ transform: translateX(0px); animation-timing-function: steps({typed}, end); }} "
+                f"{start + type_pct:.2f}%, 100% {{ transform: translateX({typed * CHAR_W + 12:.1f}px); }} }}"
+            )
+            css_rules.append(f"    .c{i} {{ animation: c{i} {CYCLE_S}s linear infinite; }}")
+            extra = (
+                f'<rect class="cover c{i}" x="{prefix_w:.1f}" y="{y - 16}" width="{typed * CHAR_W + 12:.1f}" height="22" fill="var(--bg)"/>'
+            )
+        if kind == "prompt":
+            extra = f'<rect class="cursor" x="{2 * CHAR_W:.1f}" y="{y - 14}" width="9" height="18" rx="1" fill="var(--lime)"/>'
+        body.append(f'<g class="r{i}">{line}{extra}</g>')
+        y += 25
+
+    css = "\n".join(css_rules)
+    step_labels = [("1", "connect", 0), ("2", "recall", 16), ("3", "guard", 42), ("4", "forget", 66)]
+    step_css = []
+    step_svg = []
+    sx = TERM_W - 28
+    for idx, (num, label, start) in reversed(list(enumerate(step_labels))):
+        end = step_labels[idx + 1][2] if idx + 1 < len(step_labels) else 95
+        wpx = len(label) * 7.2 + 34
+        sx -= wpx
+        step_css.append(
+            f"    @keyframes s{num} {{ 0%, {max(start - 0.01, 0)}% {{ opacity: 0.35; }} {start}%, {end - 0.01}% {{ opacity: 1; }} {end}%, 100% {{ opacity: 0.35; }} }}"
+        )
+        step_css.append(f"    .s{num} {{ animation: s{num} {CYCLE_S}s linear infinite; }}")
+        step_svg.append(
+            f'<g class="s{num}"><rect x="{sx:.1f}" y="12" width="{wpx - 6:.1f}" height="18" rx="9" fill="var(--chip)"/>'
+            f'<text x="{sx + (wpx - 6) / 2:.1f}" y="25" text-anchor="middle" class="mono" font-size="11" fill="var(--fg)">{num} {label}</text></g>'
+        )
+    css += "\n" + "\n".join(step_css)
+
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {TERM_W} {TERM_H}" width="100%">
   <style>
     :root {{
-      --bg: #0D1117;
-      --chrome: #161B22;
-      --border: #30363D;
-      --fg: #E6EDF3;
-      --muted: #8B949E;
-      --cyan: #58A6FF;
-      --green: #3FB950;
-      --amber: #D29922;
-      --red: #F85149;
-      --chip: #1F2937;
+      --bg: #0B0F17;
+      --chrome: #121826;
+      --border: #263049;
+      --chip: #1C2537;
+      --fg: #E8EDF5;
+      --muted: #8C99AD;
+      --dim: #5D6A80;
+      --lime: {LIME};
+      --cyan: {CYAN};
+      --amber: {AMBER};
+      --red: {RED};
     }}
-    @media (prefers-color-scheme: light) {{
-      :root {{
-        --bg: #0F172A;
-        --chrome: #1E293B;
-        --border: #334155;
-        --fg: #F8FAFC;
-        --muted: #94A3B8;
-        --cyan: #38BDF8;
-        --green: #34D399;
-        --amber: #FBBF24;
-        --red: #FB7185;
-        --chip: #1E293B;
-      }}
-    }}
-    .mono {{ font-family: {FONT_MONO}; font-size: 13px; }}
-    .title {{ font-family: {FONT_SANS}; font-size: 12.5px; font-weight: 600; }}
-    .s1 {{ opacity: 1; }}
-    .s2 {{ animation: reveal2 14s infinite; }}
-    .s3 {{ animation: reveal3 14s infinite; }}
-    .s4 {{ animation: reveal4 14s infinite; }}
-    .cursor {{ animation: blink 1s steps(2, end) infinite; }}
-    @keyframes reveal2 {{
-      0%, 16% {{ opacity: 0; }}
-      22%, 95% {{ opacity: 1; }}
-      99%, 100% {{ opacity: 0; }}
-    }}
-    @keyframes reveal3 {{
-      0%, 42% {{ opacity: 0; }}
-      48%, 95% {{ opacity: 1; }}
-      99%, 100% {{ opacity: 0; }}
-    }}
-    @keyframes reveal4 {{
-      0%, 68% {{ opacity: 0; }}
-      74%, 95% {{ opacity: 1; }}
-      99%, 100% {{ opacity: 0; }}
-    }}
-    @keyframes blink {{
-      0%, 49% {{ opacity: 1; }}
-      50%, 100% {{ opacity: 0; }}
+    .mono {{ font-family: {MONO}; }}
+    .term {{ font-family: {MONO}; font-size: 14px; }}
+    .title {{ font-family: {SANS}; font-size: 12.5px; font-weight: 600; }}
+    .cursor {{ animation: blink 1.1s steps(2, end) infinite; }}
+    @keyframes blink {{ 0%, 49% {{ opacity: 1; }} 50%, 100% {{ opacity: 0; }} }}
+{css}
+    @media (prefers-reduced-motion: reduce) {{
+      .term g, .steps g {{ animation: none !important; opacity: 1 !important; }}
+      .cover {{ display: none; }}
     }}
   </style>
 
-  <rect width="980" height="470" rx="14" fill="var(--bg)" stroke="var(--border)" stroke-width="1.5"/>
-  <path d="M 1 14 Q 1 1 14 1 L 966 1 Q 979 1 979 14 L 979 40 L 1 40 Z" fill="var(--chrome)"/>
-  <line x1="0" y1="40" x2="980" y2="40" stroke="var(--border)" stroke-width="1"/>
-  <circle cx="22" cy="20" r="6" fill="#FF5F56"/>
-  <circle cx="42" cy="20" r="6" fill="#FFBD2E"/>
-  <circle cx="62" cy="20" r="6" fill="#27C93F"/>
-  <text x="490" y="25" text-anchor="middle" class="title" fill="var(--muted)">kp - personal &amp; team memory loop (100% local SQLite)</text>
+  <rect width="{TERM_W}" height="{TERM_H}" rx="14" fill="var(--bg)"/>
+  <path d="M14 0.75 H{TERM_W - 14} Q{TERM_W - 0.75} 0.75 {TERM_W - 0.75} 14 V42 H0.75 V14 Q0.75 0.75 14 0.75 Z" fill="var(--chrome)"/>
+  <rect x="0.75" y="0.75" width="{TERM_W - 1.5}" height="{TERM_H - 1.5}" rx="13.25" fill="none" stroke="var(--border)" stroke-width="1.5"/>
+  <line x1="0.75" y1="42" x2="{TERM_W - 0.75}" y2="42" stroke="var(--border)"/>
+  <circle cx="24" cy="21" r="6" fill="#FF5F57"/>
+  <circle cx="44" cy="21" r="6" fill="#FEBC2E"/>
+  <circle cx="64" cy="21" r="6" fill="#28C840"/>
+  {mark(88, 11, 20, 'term')}
+  <text x="116" y="25.5" class="title" fill="var(--muted)">kp · your agent's memory, one local file</text>
+  <g class="steps">{''.join(step_svg)}</g>
 
-  <g transform="translate(28, 70)" class="mono">
-    <g class="s1">
-      <text x="0" y="0"><tspan fill="var(--green)">$</tspan> <tspan fill="var(--fg)">kp init --path ~/.kp/personal --owner alice &amp;&amp; kp connect claude-code --project .</tspan></text>
-      <text x="0" y="24" fill="var(--muted)">Initialized personal library (local:bge-small-zh-v1.5, 512d) · Installed async hooks</text>
-
-      <text x="0" y="58"><tspan fill="var(--green)">$</tspan> <tspan fill="var(--fg)">kp remember --subject "prod-db" --predicate kp.ops.freeze \\</tspan></text>
-      <text x="0" y="80" fill="var(--fg)">    --value "Release freeze until Monday 09:00 UTC" --kind constraint \\</text>
-      <text x="0" y="102" fill="var(--fg)">    --tags "release,[forbid: sqlx migrate]" --logical-key release-freeze --audience alice,bob</text>
-    </g>
-
-    <g class="s2">
-      <text x="0" y="140"><tspan fill="var(--cyan)">[UserPromptSubmit &lt;= 250 tok]</tspan> <tspan fill="var(--muted)">Prompt: "Roll out billing schema migration"</tspan></text>
-      <text x="0" y="164" fill="var(--green)">  &lt;kp-context&gt; [constraint] prod-db: Release freeze until Monday 09:00 UTC [kp-ref:a81f29c4]</text>
-      <text x="0" y="186" fill="var(--muted)">  &#8627; author=alice · audience=&#123;alice,bob&#125; · active validity window</text>
-    </g>
-
-    <g class="s3">
-      <text x="0" y="226"><tspan fill="var(--amber)">[PreToolUse Guard]</tspan> <tspan fill="var(--fg)">Tool: Bash("sqlx migrate run")</tspan></text>
-      <text x="0" y="250" fill="var(--red)">  blocked -&gt; Claude Code: permissionDecision="ask" | Codex: permissionDecision="deny"</text>
-      <text x="0" y="272" fill="var(--muted)">  reason: matches [forbid: sqlx migrate] on [kp-ref:a81f29c4] (override: kp allow kp-ref:a81f29c4)</text>
-    </g>
-
-    <g class="s4">
-      <text x="0" y="312"><tspan fill="var(--green)">$</tspan> <tspan fill="var(--fg)">kp forget release-freeze &amp;&amp; kp search "sqlx migrate" --as carol --json</tspan></text>
-      <text x="0" y="336" fill="var(--green)">  withdrew release-freeze -&gt; dependent warnings invalidated · carol results: [] (zero leakage)</text>
-      <text x="0" y="370"><tspan fill="var(--green)">$</tspan> <tspan fill="var(--fg)">kp demo</tspan></text>
-      <rect x="86" y="356" width="9" height="17" fill="var(--cyan)" class="cursor"/>
-    </g>
+  <g class="term" transform="translate(30 0)">
+    {chr(10).join('    ' + b for b in body)}
   </g>
 </svg>"""
+
+
+# Team sharing ------------------------------------------------------------
 
 
 def semiring_svg() -> str:
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 390" width="100%">
+    w, h = 1080, 516
+
+    def panel(x: float, good: bool) -> str:
+        accent = "var(--good)" if good else "var(--bad)"
+        soft = "var(--good-soft)" if good else "var(--bad-soft)"
+        label = "WITH KIPO" if good else "TYPICAL SHARED RAG"
+        title = "Everyone sees only what they should" if good else "Private notes leak into the team index"
+        people = [("A", "alice", True), ("B", "bob", True), ("C", "carol", False)]
+        bullets = (
+            [
+                "Private notes stay in your local kp.sqlite.",
+                "kp forget retracts it everywhere in 0 ms.",
+                "Carol gets the same empty result as a missing note.",
+            ]
+            if good
+            else [
+                "Summaries inherit the widest access. Carol sees it.",
+                "Retracted rules linger until someone re-indexes.",
+                "Ex-teammates can still search old summaries.",
+            ]
+        )
+        label_w = len(label) * 11.5 * 0.62 + 22
+        out = [
+            f'<g transform="translate({x} 96)">',
+            f'<rect width="496" height="392" rx="16" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>',
+            f'<rect x="20" y="0" width="456" height="3" rx="1.5" fill="{accent}"/>',
+            f'<rect x="24" y="24" width="{label_w:.1f}" height="22" rx="11" fill="{soft}"/>',
+            f'<text x="{24 + label_w / 2:.1f}" y="39" text-anchor="middle" class="mono" font-size="11.5" font-weight="700" fill="{accent}">{label}</text>',
+            f'<text x="24" y="78" class="sans" font-size="19" font-weight="750" fill="var(--fg)">{title}</text>',
+            '<rect x="24" y="96" width="448" height="44" rx="10" fill="var(--note)" stroke="var(--line)"/>',
+            '<text x="40" y="123" class="mono" font-size="12.5" fill="var(--muted)">bob</text>',
+            '<text x="76" y="123" class="sans" font-size="14" fill="var(--fg)">"DB freeze until Monday." Shared with alice and bob only.</text>',
+        ]
+        for j, (initial, name, allowed) in enumerate(people):
+            cx = 98 + j * 150
+            leaked = not allowed and not good
+            ok = allowed or leaked
+            ring = "var(--bad)" if leaked else ("var(--good)" if ok else "var(--line)")
+            out.append(f'<path d="M248 140 C 248 158, {cx} 152, {cx} 170" fill="none" stroke="{ring}" stroke-width="1.6" stroke-dasharray="{"0" if ok else "4 4"}"/>')
+            out.append(f'<circle cx="{cx}" cy="192" r="22" fill="var(--avatar)" stroke="{ring}" stroke-width="2.5"/>')
+            out.append(f'<text x="{cx}" y="198" text-anchor="middle" class="sans" font-size="16" font-weight="800" fill="var(--fg)">{initial}</text>')
+            out.append(f'<text x="{cx}" y="236" text-anchor="middle" class="sans" font-size="13" font-weight="600" fill="var(--fg)">{name}</text>')
+            if leaked:
+                status, fg, bg = "LEAKED", "var(--bad)", "var(--bad-soft)"
+            elif ok:
+                status, fg, bg = "SEES IT", "var(--good)", "var(--good-soft)"
+            else:
+                status, fg, bg = "NOTHING", "var(--muted)", "var(--note)"
+            sw = len(status) * 10.5 * 0.62 + 18
+            out.append(f'<rect x="{cx - sw / 2:.1f}" y="246" width="{sw:.1f}" height="20" rx="10" fill="{bg}"/>')
+            out.append(f'<text x="{cx}" y="260" text-anchor="middle" class="mono" font-size="10.5" font-weight="700" fill="{fg}">{status}</text>')
+        out.append('<line x1="24" y1="286" x2="472" y2="286" stroke="var(--line)"/>')
+        for k, line in enumerate(bullets):
+            by = 312 + k * 26
+            if good:
+                glyph = f'<path d="M{29} {by - 5} l3.5 3.5 l6.5 -7" fill="none" stroke="{accent}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>'
+            else:
+                glyph = f'<path d="M{30} {by - 9} l7 7 M{37} {by - 9} l-7 7" stroke="{accent}" stroke-width="2.2" stroke-linecap="round"/>'
+            out.append(glyph)
+            out.append(f'<text x="50" y="{by}" class="sans" font-size="14.5" fill="var(--fg)">{t(line)}</text>')
+        out.append("</g>")
+        return "\n    ".join(out)
+
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="100%">
   <style>
     :root {{
-      --bg: #FFFFFF;
-      --panel-bad: #FEF2F2;
-      --stroke-bad: #FCA5A5;
-      --title-bad: #B91C1C;
-      --panel-good: #ECFDF5;
-      --stroke-good: #6EE7B7;
-      --title-good: #047857;
-      --card: #FFFFFF;
-      --stroke: #CBD5E1;
-      --fg: #0F172A;
-      --muted: #475569;
-      --accent: #0284C7;
+      --bg: #FBFCFD; --panel: #FFFFFF; --note: #F3F5F8; --avatar: #EEF1F5; --line: #DCE2EA;
+      --fg: #0B1220; --muted: #5A6678;
+      --bad: #D93636; --bad-soft: #FDE8E8; --good: #3B7D0C; --good-soft: #EEF9DD;
     }}
     @media (prefers-color-scheme: dark) {{
       :root {{
-        --bg: #0B111B;
-        --panel-bad: #1F1218;
-        --stroke-bad: #7F1D1D;
-        --title-bad: #FCA5A5;
-        --panel-good: #0D231E;
-        --stroke-good: #065F46;
-        --title-good: #6EE7B7;
-        --card: #131D2E;
-        --stroke: #2A3B54;
-        --fg: #F1F5F9;
-        --muted: #94A3B8;
-        --accent: #38BDF8;
+        --bg: {INK}; --panel: {INK_RAISED}; --note: #182133; --avatar: #1A2436; --line: {INK_LINE};
+        --fg: {PAPER}; --muted: {MUTED};
+        --bad: {RED}; --bad-soft: #33161A; --good: {LIME}; --good-soft: #1C2A12;
       }}
     }}
-    .sans {{ font-family: {FONT_SANS}; }}
-    .mono {{ font-family: {FONT_MONO}; }}
+    .sans {{ font-family: {SANS}; }}
+    .mono {{ font-family: {MONO}; }}
   </style>
-
-  <rect width="1080" height="390" rx="16" fill="var(--bg)" stroke="var(--stroke)" stroke-width="1.5"/>
-
-  <g transform="translate(28, 26)">
-    <rect width="496" height="338" rx="14" fill="var(--panel-bad)" stroke="var(--stroke-bad)" stroke-width="1.5"/>
-    <text x="24" y="36" class="sans" font-size="18" font-weight="800" fill="var(--title-bad)">Conventional shared memory (copied ACLs)</text>
-    <text x="24" y="60" class="sans" font-size="13" fill="var(--muted)">Permissions and validity are baked into summaries at write time.</text>
-
-    <rect x="24" y="84" width="208" height="72" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="38" y="110" class="mono" font-size="12" font-weight="700" fill="var(--fg)">Premise A (Event)</text>
-    <text x="38" y="132" class="mono" font-size="11.5" fill="var(--muted)">aud = &#123;alice, bob, carol&#125;</text>
-
-    <rect x="264" y="84" width="208" height="72" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="278" y="110" class="mono" font-size="12" font-weight="700" fill="var(--fg)">Premise B (Constraint)</text>
-    <text x="278" y="132" class="mono" font-size="11.5" fill="var(--muted)">aud = &#123;alice, bob&#125;</text>
-
-    <line x1="128" y1="156" x2="228" y2="196" stroke="var(--title-bad)" stroke-width="2"/>
-    <line x1="368" y1="156" x2="268" y2="196" stroke="var(--title-bad)" stroke-width="2"/>
-
-    <rect x="24" y="196" width="448" height="118" rx="10" fill="var(--card)" stroke="var(--stroke-bad)" stroke-width="1.5"/>
-    <text x="42" y="224" class="sans" font-size="13.5" font-weight="700" fill="var(--title-bad)">Materialized summary chunk in vector index</text>
-    <text x="42" y="248" class="sans" font-size="12" fill="var(--fg)">1. Summary inherits broad channel ACL, leaking B to carol.</text>
-    <text x="42" y="270" class="sans" font-size="12" fill="var(--fg)">2. When bob leaves or withdraws B, stale summary vectors</text>
-    <text x="42" y="290" class="sans" font-size="12" fill="var(--fg)">   keep surfacing in prompts until manual re-indexing.</text>
-  </g>
-
-  <g transform="translate(556, 26)">
-    <rect width="496" height="338" rx="14" fill="var(--panel-good)" stroke="var(--stroke-good)" stroke-width="1.5"/>
-    <text x="24" y="36" class="sans" font-size="18" font-weight="800" fill="var(--title-good)">Kipo read-time provenance semiring</text>
-    <text x="24" y="60" class="sans" font-size="12.5" fill="var(--muted)">Derived facts store audience = "__semiring__" and evaluate on read.</text>
-
-    <rect x="24" y="84" width="208" height="72" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="38" y="110" class="mono" font-size="12" font-weight="700" fill="var(--fg)">Premise A @ [t1, t2)</text>
-    <text x="38" y="132" class="mono" font-size="11.5" fill="var(--muted)">aud = &#123;alice, bob, carol&#125;</text>
-
-    <rect x="264" y="84" width="208" height="72" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="278" y="110" class="mono" font-size="12" font-weight="700" fill="var(--fg)">Premise B @ [t1, inf)</text>
-    <text x="278" y="132" class="mono" font-size="11.5" fill="var(--muted)">aud = &#123;alice, bob&#125;</text>
-
-    <line x1="128" y1="156" x2="228" y2="196" stroke="var(--title-good)" stroke-width="2"/>
-    <line x1="368" y1="156" x2="268" y2="196" stroke="var(--title-good)" stroke-width="2"/>
-
-    <rect x="24" y="196" width="448" height="118" rx="10" fill="var(--card)" stroke="var(--stroke-good)" stroke-width="1.5"/>
-    <text x="42" y="224" class="mono" font-size="12" font-weight="700" fill="var(--title-good)">visible(v, t) = OR_proof ( AND_p visible(p, v, t) )</text>
-    <text x="42" y="248" class="sans" font-size="12" fill="var(--fg)">1. Effective visibility is &#123;alice, bob&#125; at [t1, t2). Carol gets</text>
-    <text x="42" y="268" class="sans" font-size="12" fill="var(--fg)">   byte-identical 404 and search results with zero leakage.</text>
-    <text x="42" y="288" class="sans" font-size="12" fill="var(--fg)">2. kp forget, clock expiry, or roster change takes 0 ms.</text>
-  </g>
+  <rect width="{w}" height="{h}" rx="18" fill="var(--bg)"/>
+  <rect x="0.75" y="0.75" width="{w - 1.5}" height="{h - 1.5}" rx="17.25" fill="none" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="{w / 2}" y="50" text-anchor="middle" class="sans" font-size="26" font-weight="800" letter-spacing="-0.5" fill="var(--fg)">Share with your team. Leak nothing.</text>
+  <text x="{w / 2}" y="76" text-anchor="middle" class="sans" font-size="15" fill="var(--muted)">One note from bob, meant for alice and bob. Who can read it?</text>
+  {panel(28, False)}
+  {panel(556, True)}
 </svg>"""
+
+
+# Workflow map ------------------------------------------------------------
 
 
 def architecture_svg() -> str:
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 500" width="100%">
+    w, h = 1080, 540
+    sources = ["Claude Code", "Codex", "Cursor", "Windsurf", "Code and docs", "PDF and Office files", "Web pages", "GitHub and team chat"]
+    outputs = [
+        ("Recall in every prompt", "≤ 250 tokens, ≤ 3 items", "var(--cyan)"),
+        ("Live command guardrails", "PreToolUse ask or deny", "var(--lime)"),
+        ("Skills built overnight", "kp dream → SKILL.md", "var(--amber)"),
+        ("Optional team sync", "kp publish · kp sync", "var(--violet)"),
+    ]
+    vault_x, vault_y, vault_w, vault_h = 384, 150, 312, 296
+    vault_cy = vault_y + vault_h / 2
+    left = []
+    for i, name in enumerate(sources):
+        y = 132 + i * 41
+        left.append(f'<rect x="28" y="{y}" width="248" height="33" rx="9" fill="var(--card)" stroke="var(--line)"/>')
+        left.append(f'<circle cx="46" cy="{y + 16.5}" r="4" fill="var(--muted)"/>')
+        left.append(f'<text x="60" y="{y + 21.5}" class="sans" font-size="14" font-weight="600" fill="var(--fg)">{t(name)}</text>')
+        sy = y + 16.5
+        ty = vault_cy - 60 + i * (120 / 7)
+        left.append(f'<path d="M276 {sy} C 330 {sy}, 330 {ty:.1f}, {vault_x} {ty:.1f}" fill="none" stroke="var(--wire)" stroke-width="1.5"/>')
+    right = []
+    for i, (title, sub, color) in enumerate(outputs):
+        y = 132 + i * 82
+        right.append(f'<rect x="804" y="{y}" width="248" height="70" rx="12" fill="var(--card)" stroke="var(--line)"/>')
+        right.append(f'<rect x="804" y="{y + 14}" width="4" height="42" rx="2" fill="{color}"/>')
+        right.append(f'<text x="824" y="{y + 30}" class="sans" font-size="15" font-weight="750" fill="var(--fg)">{t(title)}</text>')
+        right.append(f'<text x="824" y="{y + 52}" class="mono" font-size="12.5" fill="{color}">{t(sub)}</text>')
+        ty = y + 35
+        sy = vault_cy - 45 + i * 30
+        right.append(f'<path d="M{vault_x + vault_w} {sy} C 750 {sy}, 750 {ty}, 804 {ty}" fill="none" stroke="{color}" stroke-width="1.8" stroke-opacity="0.8"/>')
+        right.append(f'<circle cx="804" cy="{ty}" r="3.5" fill="{color}"/>')
+    checks = ["Secrets scrubbed before saving", "Works fully offline", "See everything with kp inspect"]
+    check_svg = []
+    for i, line in enumerate(checks):
+        cy = vault_y + 206 + i * 26
+        check_svg.append(f'<path d="M{vault_x + 46} {cy - 5} l3.5 3.5 l6.5 -7" fill="none" stroke="var(--lime)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>')
+        check_svg.append(f'<text x="{vault_x + 66}" y="{cy}" class="sans" font-size="14" fill="var(--fg)">{t(line)}</text>')
+
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="100%">
   <style>
     :root {{
-      --bg: #FFFFFF;
-      --layer: #F8FAFC;
-      --card: #FFFFFF;
-      --stroke: #CBD5E1;
-      --fg: #0F172A;
-      --muted: #475569;
-      --blue: #0284C7;
-      --green: #059669;
-      --amber: #D97706;
-      --purple: #7C3AED;
+      --bg: #FBFCFD; --card: #FFFFFF; --vault: #FFFFFF; --line: #DCE2EA; --wire: #C3CCD8;
+      --fg: #0B1220; --muted: #5A6678;
+      --cyan: #0B7BC0; --lime: #3B7D0C; --amber: #B7791F; --violet: #6D4AE0;
     }}
     @media (prefers-color-scheme: dark) {{
       :root {{
-        --bg: #0B111B;
-        --layer: #111927;
-        --card: #172235;
-        --stroke: #293A52;
-        --fg: #F1F5F9;
-        --muted: #94A3B8;
-        --blue: #38BDF8;
-        --green: #34D399;
-        --amber: #FBBF24;
-        --purple: #A78BFA;
+        --bg: {INK}; --card: {INK_RAISED}; --vault: #101827; --line: {INK_LINE}; --wire: #34415C;
+        --fg: {PAPER}; --muted: {MUTED};
+        --cyan: {CYAN}; --lime: {LIME}; --amber: {AMBER}; --violet: #A894FF;
       }}
     }}
-    .sans {{ font-family: {FONT_SANS}; }}
-    .mono {{ font-family: {FONT_MONO}; }}
+    .sans {{ font-family: {SANS}; }}
+    .mono {{ font-family: {MONO}; }}
   </style>
+  <rect width="{w}" height="{h}" rx="18" fill="var(--bg)"/>
+  <rect x="0.75" y="0.75" width="{w - 1.5}" height="{h - 1.5}" rx="17.25" fill="none" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="{w / 2}" y="50" text-anchor="middle" class="sans" font-size="26" font-weight="800" letter-spacing="-0.5" fill="var(--fg)">How Kipo fits your daily workflow</text>
+  <text x="{w / 2}" y="76" text-anchor="middle" class="sans" font-size="15" fill="var(--muted)">The tools you already use write to one local file. Your agent reads back only what helps.</text>
 
-  <rect width="1080" height="500" rx="16" fill="var(--bg)" stroke="var(--stroke)" stroke-width="1.5"/>
+  <text x="28" y="118" class="mono" font-size="11.5" font-weight="700" letter-spacing="1" fill="var(--muted)">YOU WORK IN</text>
+  <text x="804" y="118" class="mono" font-size="11.5" font-weight="700" letter-spacing="1" fill="var(--muted)">YOUR AGENT GETS</text>
+  {chr(10).join('  ' + s for s in left)}
+  {chr(10).join('  ' + s for s in right)}
 
-  <g transform="translate(28, 24)">
-    <rect width="1024" height="86" rx="12" fill="var(--layer)" stroke="var(--stroke)"/>
-    <text x="20" y="26" class="mono" font-size="11.5" font-weight="700" fill="var(--blue)">PRODUCERS &amp; AGENT HOOKS (EQUAL EXTERNAL CALLERS)</text>
+  <rect x="{vault_x}" y="{vault_y}" width="{vault_w}" height="{vault_h}" rx="22" fill="var(--vault)" stroke="var(--lime)" stroke-width="2"/>
+  {mark(vault_x + vault_w / 2 - 36, vault_y + 30, 72, 'arch')}
+  <text x="{vault_x + vault_w / 2}" y="{vault_y + 146}" text-anchor="middle" class="mono" font-size="28" font-weight="800" fill="var(--fg)">kp.sqlite</text>
+  <text x="{vault_x + vault_w / 2}" y="{vault_y + 172}" text-anchor="middle" class="sans" font-size="14" fill="var(--muted)">one file on your machine</text>
+  {''.join(check_svg)}
 
-    <rect x="20" y="38" width="232" height="36" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="136" y="61" text-anchor="middle" class="sans" font-size="13" font-weight="600" fill="var(--fg)">Claude Code &amp; Codex Hooks</text>
-
-    <rect x="270" y="38" width="232" height="36" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="386" y="61" text-anchor="middle" class="sans" font-size="13" font-weight="600" fill="var(--fg)">kp-connector (GitHub / Feishu)</text>
-
-    <rect x="520" y="38" width="232" height="36" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="636" y="61" text-anchor="middle" class="sans" font-size="12" font-weight="600" fill="var(--fg)">kp add (Code, PDF, Office, Web)</text>
-
-    <rect x="770" y="38" width="234" height="36" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="887" y="61" text-anchor="middle" class="sans" font-size="13" font-weight="600" fill="var(--fg)">CLI kp ingest · MCP kp_note</text>
-  </g>
-
-  <g transform="translate(28, 128)">
-    <rect width="1024" height="62" rx="12" fill="var(--layer)" stroke="var(--blue)" stroke-width="1.5"/>
-    <text x="512" y="27" text-anchor="middle" class="mono" font-size="12.5" font-weight="700" fill="var(--blue)">GOVERNED INGEST &amp; PRIVACY BOUNDARY (Draft 2020-12 JSON Schema · SecretRedactor · RawOnly Gate)</text>
-    <text x="512" y="47" text-anchor="middle" class="sans" font-size="12.5" fill="var(--muted)">Pre-persistence credential scrubbing · Closed unknown-field rejection · Monotonic container roster ceilings · Private 0700 UDS daemon</text>
-  </g>
-
-  <g transform="translate(28, 208)">
-    <rect width="1024" height="152" rx="12" fill="var(--layer)" stroke="var(--green)" stroke-width="1.5"/>
-    <text x="20" y="26" class="mono" font-size="12" font-weight="700" fill="var(--green)">ISOMORPHIC SINGLE-FILE SQLITE ENGINE (kp.sqlite WAL — PERSONAL LIBRARY = 1-MEMBER COMMUNITY)</text>
-
-    <rect x="20" y="42" width="236" height="94" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="36" y="66" class="mono" font-size="12.5" font-weight="700" fill="var(--fg)">L0 Verbatim Storage</text>
-    <text x="36" y="88" class="sans" font-size="12" fill="var(--muted)">raw_blobs + raw_sources</text>
-    <text x="36" y="106" class="sans" font-size="12" fill="var(--muted)">tree-sitter &amp; page anchors</text>
-    <text x="36" y="124" class="sans" font-size="12" fill="var(--muted)">HMAC tombstones + secure_delete</text>
-
-    <rect x="270" y="42" width="236" height="94" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="286" y="66" class="mono" font-size="12.5" font-weight="700" fill="var(--fg)">Hybrid Scoped Indexes</text>
-    <text x="286" y="88" class="sans" font-size="12" fill="var(--muted)">jieba-rs CJK/EN FTS5 BM25</text>
-    <text x="286" y="106" class="sans" font-size="12" fill="var(--muted)">Local ONNX + 8 cloud recipes</text>
-    <text x="286" y="124" class="sans" font-size="12" fill="var(--muted)">RRF fusion + DPP diversity</text>
-
-    <rect x="520" y="42" width="236" height="94" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="536" y="66" class="mono" font-size="12.5" font-weight="700" fill="var(--fg)">L1 &amp; Semiring Proofs</text>
-    <text x="536" y="88" class="sans" font-size="12" fill="var(--muted)">Bitemporal facts &amp; slots</text>
-    <text x="536" y="106" class="sans" font-size="12" fill="var(--muted)">Datalog collisions &amp; JTMS</text>
-    <text x="536" y="124" class="sans" font-size="12" fill="var(--muted)">justifications proof DAG</text>
-
-    <rect x="770" y="42" width="234" height="94" rx="10" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="786" y="66" class="mono" font-size="12.5" font-weight="700" fill="var(--fg)">Sleep-Time RSI (kp dream)</text>
-    <text x="786" y="88" class="sans" font-size="12" fill="var(--muted)">Contrastive episode mining</text>
-    <text x="786" y="106" class="sans" font-size="12" fill="var(--muted)">CommandGuardSpec extraction</text>
-    <text x="786" y="124" class="sans" font-size="12" fill="var(--muted)">k-of-N SKILL.md promotion</text>
-  </g>
-
-  <g transform="translate(28, 378)">
-    <rect width="1024" height="96" rx="12" fill="var(--layer)" stroke="var(--purple)" stroke-width="1.5"/>
-    <text x="20" y="26" class="mono" font-size="11.5" font-weight="700" fill="var(--purple)">VIEWER-ISOLATED READ, GOVERNANCE &amp; COLLABORATION INTERFACES</text>
-
-    <rect x="20" y="40" width="236" height="42" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="138" y="66" text-anchor="middle" class="sans" font-size="12.5" font-weight="600" fill="var(--fg)">&lt;=250-tok Prompt &amp; PreToolUse</text>
-
-    <rect x="270" y="40" width="236" height="42" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="388" y="66" text-anchor="middle" class="sans" font-size="12.5" font-weight="600" fill="var(--fg)">127.0.0.1 4-Col Web Inspector</text>
-
-    <rect x="520" y="40" width="236" height="42" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="638" y="66" text-anchor="middle" class="sans" font-size="12.5" font-weight="600" fill="var(--fg)">Markdown export / apply / why</text>
-
-    <rect x="770" y="40" width="234" height="42" rx="8" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="887" y="66" text-anchor="middle" class="sans" font-size="12.5" font-weight="600" fill="var(--fg)">Community REST · MCP · A2A</text>
-  </g>
+  <text x="{w / 2}" y="{h - 30}" text-anchor="middle" class="mono" font-size="12.5" fill="var(--muted)">Local by default  ·  no cloud account  ·  Apache-2.0</text>
 </svg>"""
+
+
+# Video poster ------------------------------------------------------------
 
 
 def video_poster_svg() -> str:
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 210" width="100%">
-  <style>
-    :root {{
-      --bg: #0B111B;
-      --card: #162235;
-      --stroke: #2A3C58;
-      --fg: #F8FAFC;
-      --muted: #94A3B8;
-      --accent: #38BDF8;
-      --green: #34D399;
-      --amber: #FBBF24;
-    }}
-    .sans {{ font-family: {FONT_SANS}; }}
-    .mono {{ font-family: {FONT_MONO}; }}
-  </style>
-  <rect width="1080" height="210" rx="16" fill="var(--bg)" stroke="var(--stroke)" stroke-width="1.5"/>
+    w, h = 1080, 240
+    chip = "PRODUCT TRAILER · ~1 MIN · HD AUDIO"
+    chip_w = len(chip) * 12 * 0.62 + 24
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="100%">
+  <defs>
+    <radialGradient id="poster-glow" cx="0.1" cy="0.5" r="0.45">
+      <stop offset="0" stop-color="{LIME}" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="{LIME}" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  {style()}
+  <rect width="{w}" height="{h}" rx="18" fill="{INK}"/>
+  <rect width="{w}" height="{h}" rx="18" fill="url(#poster-glow)"/>
+  <rect x="0.75" y="0.75" width="{w - 1.5}" height="{h - 1.5}" rx="17.25" fill="none" stroke="{INK_LINE}" stroke-width="1.5"/>
 
-  <g transform="translate(40, 41)">
-    <circle cx="64" cy="64" r="54" fill="#0F2942" stroke="var(--accent)" stroke-width="3"/>
-    <circle cx="64" cy="64" r="44" fill="none" stroke="#1E3A5F" stroke-width="1.5"/>
-    <polygon points="52,39 52,89 94,64" fill="var(--accent)"/>
-  </g>
+  <circle cx="120" cy="120" r="66" fill="none" stroke="{LIME}" stroke-opacity="0.25" stroke-width="2"/>
+  <circle cx="120" cy="120" r="54" fill="{LIME}"/>
+  <path d="M106 92 L106 148 L150 120 Z" fill="{INK}" stroke="{INK}" stroke-width="4" stroke-linejoin="round"/>
 
-  <g transform="translate(194, 36)">
-    <rect x="0" y="0" width="268" height="26" rx="6" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="134" y="17" text-anchor="middle" class="mono" font-size="11.5" font-weight="700" fill="var(--green)">ARCHITECTURE VIDEO · 2M 22S · HD AUDIO</text>
+  <rect x="224" y="40" width="{chip_w:.1f}" height="26" rx="13" fill="#1C2A12" stroke="{LIME}" stroke-opacity="0.5"/>
+  <text x="{224 + chip_w / 2:.1f}" y="57.5" text-anchor="middle" class="mono" font-size="12" font-weight="700" fill="{LIME}">{t(chip)}</text>
+  <text x="224" y="112" class="sans" font-size="32" font-weight="800" letter-spacing="-0.6" fill="{PAPER}">See how Kipo stops AI amnesia</text>
+  <text x="224" y="150" class="sans" font-size="32" font-weight="800" letter-spacing="-0.6" fill="{PAPER}">and dangerous commands.</text>
+  <text x="224" y="192" class="mono" font-size="13.5" fill="{MUTED}">Click to play the MP4  ·  or run kp demo for the 5-minute offline tour</text>
 
-    <rect x="280" y="0" width="146" height="26" rx="6" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="353" y="17" text-anchor="middle" class="mono" font-size="11.5" font-weight="700" fill="var(--amber)">8 SCENES · MP4</text>
-
-    <text x="0" y="60" class="sans" font-size="23" font-weight="800" fill="var(--fg)">Watch the full narrated Kipo architecture walkthrough</text>
-    <text x="0" y="89" class="sans" font-size="14" fill="var(--muted)">
-      Covers single-file SQLite WAL layout, read-time provenance semiring evaluation, Claude Code and Codex hooks,
-    </text>
-    <text x="0" y="110" class="sans" font-size="14" fill="var(--muted)">
-      PreToolUse command guards, sleep-time kp dream skill promotion, and zero-leakage team collaboration.
-    </text>
-    <text x="0" y="138" class="mono" font-size="12.5" fill="var(--accent)">Click to play or download docs/assets/kipo-explainer.mp4 (720p H.264 + AAC) · Or run: kp demo</text>
-  </g>
+  {mark(880, 52, 136, 'poster')}
 </svg>"""
 
 
+# Social preview ----------------------------------------------------------
+
+
 def social_preview_svg() -> str:
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
-  <style>
-    .sans {{ font-family: {FONT_SANS}; }}
-    .mono {{ font-family: {FONT_MONO}; }}
-  </style>
-  <rect width="1280" height="640" fill="#0B111B"/>
-  <rect x="48" y="48" width="1184" height="544" rx="28" fill="#111A29" stroke="#24344D" stroke-width="2"/>
+    w, h = 1280, 640
+    chips = [("≤ 250-token recall", CYAN), ("live command shield", LIME), ("overnight SKILL.md", AMBER)]
+    chip_svg = []
+    x = 96
+    for label, color in chips:
+        cw = len(label) * 17 * 0.6 + 36
+        chip_svg.append(
+            f'<rect x="{x}" y="452" width="{cw:.1f}" height="44" rx="22" fill="none" stroke="{color}" stroke-opacity="0.6" stroke-width="1.5"/>'
+            f'<text x="{x + cw / 2:.1f}" y="480" text-anchor="middle" class="mono" font-size="17" font-weight="700" fill="{color}">{t(label)}</text>'
+        )
+        x += cw + 16
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" width="{w}" height="{h}">
+  <defs>
+    <radialGradient id="social-glow" cx="0.82" cy="0.18" r="0.7">
+      <stop offset="0" stop-color="{LIME}" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="{LIME}" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="social-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0 H0 V40" fill="none" stroke="#FFFFFF" stroke-opacity="0.035" stroke-width="1"/>
+    </pattern>
+  </defs>
+  {style()}
+  <rect width="{w}" height="{h}" fill="{INK}"/>
+  <rect width="{w}" height="{h}" fill="url(#social-grid)"/>
+  <rect width="{w}" height="{h}" fill="url(#social-glow)"/>
 
-  <g transform="translate(96, 104)">
-    <rect width="84" height="84" rx="20" fill="#0F2942" stroke="#38BDF8" stroke-width="2.5"/>
-    <circle cx="28" cy="28" r="8" fill="#38BDF8"/>
-    <circle cx="58" cy="26" r="7" fill="#34D399"/>
-    <circle cx="43" cy="58" r="8" fill="#FBBF24"/>
-    <line x1="28" y1="28" x2="58" y2="26" stroke="#38BDF8" stroke-width="2.5"/>
-    <line x1="28" y1="28" x2="43" y2="58" stroke="#38BDF8" stroke-width="2.5"/>
-    <line x1="58" y1="26" x2="43" y2="58" stroke="#34D399" stroke-width="2.5"/>
+  {mark(96, 96, 168, 'social')}
+  <text x="296" y="222" class="sans" font-size="128" font-weight="800" letter-spacing="-5" fill="{PAPER}">Kipo</text>
+  <rect x="574" y="132" width="104" height="62" rx="14" fill="#18233A" stroke="{INK_LINE}" stroke-width="2"/>
+  <text x="626" y="176" text-anchor="middle" class="mono" font-size="34" font-weight="800" fill="{LIME}">kp</text>
 
-    <text x="112" y="52" class="sans" font-size="54" font-weight="800" fill="#F8FAFC">Kipo</text>
-    <rect x="248" y="14" width="76" height="46" rx="10" fill="#17253B" stroke="#2E4466"/>
-    <text x="286" y="45" text-anchor="middle" class="mono" font-size="26" font-weight="700" fill="#38BDF8">kp</text>
-
-    <text x="0" y="146" class="sans" font-size="30" font-weight="700" fill="#E2E8F0">
-      Local-first personal and team memory for AI coding agents.
-    </text>
-    <text x="0" y="192" class="sans" font-size="20" fill="#94A3B8">
-      One SQLite file · Read-time provenance semiring · Non-blocking hooks · Sleep-time skill evolution
-    </text>
-
-    <g transform="translate(0, 248)">
-      <rect x="0" y="0" width="340" height="148" rx="16" fill="#162235" stroke="#293C59"/>
-      <text x="28" y="42" class="mono" font-size="16" font-weight="700" fill="#38BDF8">SINGLE-FILE ENGINE</text>
-      <text x="28" y="78" class="sans" font-size="20" font-weight="700" fill="#F8FAFC">Isomorphic kp.sqlite</text>
-      <text x="28" y="110" class="sans" font-size="16" fill="#94A3B8">Redacted L0 blobs, CJK FTS5,</text>
-      <text x="28" y="132" class="sans" font-size="16" fill="#94A3B8">local ONNX, bitemporal L1</text>
-
-      <rect x="374" y="0" width="340" height="148" rx="16" fill="#162235" stroke="#293C59"/>
-      <text x="402" y="42" class="mono" font-size="16" font-weight="700" fill="#34D399">ZERO COPIED ACLS</text>
-      <text x="402" y="78" class="sans" font-size="20" font-weight="700" fill="#F8FAFC">Provenance semiring</text>
-      <text x="402" y="110" class="sans" font-size="16" fill="#94A3B8">Instant forget, expiry, and</text>
-      <text x="402" y="132" class="sans" font-size="16" fill="#94A3B8">roster contraction at read time</text>
-
-      <rect x="748" y="0" width="340" height="148" rx="16" fill="#162235" stroke="#293C59"/>
-      <text x="776" y="42" class="mono" font-size="16" font-weight="700" fill="#FBBF24">AGENT-NATIVE</text>
-      <text x="776" y="78" class="sans" font-size="20" font-weight="700" fill="#F8FAFC">Claude Code &amp; Codex</text>
-      <text x="776" y="110" class="sans" font-size="16" fill="#94A3B8">&lt;=250-tok recall, PreToolUse</text>
-      <text x="776" y="132" class="sans" font-size="16" fill="#94A3B8">guards, MCP, kp dream skills</text>
-    </g>
+  <g transform="translate(860 96)">
+    <rect width="324" height="200" rx="18" fill="{INK_RAISED}" stroke="{INK_LINE}" stroke-width="1.5"/>
+    <circle cx="24" cy="24" r="5" fill="#FF5F57"/><circle cx="42" cy="24" r="5" fill="#FEBC2E"/><circle cx="60" cy="24" r="5" fill="#28C840"/>
+    <text x="24" y="72" class="mono" font-size="15" fill="{PAPER}"><tspan fill="{LIME}">$</tspan> kp connect claude-code</text>
+    <text x="24" y="102" class="mono" font-size="15" fill="{CYAN}">recalled 2 memories, 186 tok</text>
+    <text x="24" y="132" class="mono" font-size="15" fill="{RED}">✕ blocked sqlx migrate run</text>
+    <text x="24" y="162" class="mono" font-size="15" fill="{PAPER}"><tspan fill="{LIME}">$</tspan> kp forget <tspan fill="{MUTED}">…</tspan> <tspan fill="{LIME}">0 ms</tspan></text>
   </g>
+  <text x="96" y="348" class="sans" font-size="54" font-weight="800" letter-spacing="-1.5" fill="{PAPER}">Your coding agent forgets.</text>
+  <text x="96" y="412" class="sans" font-size="54" font-weight="800" letter-spacing="-1.5" fill="{LIME}">Kipo remembers, and guards.</text>
+  {''.join(chip_svg)}
+  <text x="96" y="568" class="mono" font-size="19" fill="{MUTED}">Claude Code · Codex · Cursor · Windsurf  ·  one local kp.sqlite  ·  no cloud</text>
 </svg>"""
 
 
@@ -549,7 +584,7 @@ def main() -> None:
     write_svg(ASSETS / "kipo-architecture.svg", architecture_svg())
     write_svg(ASSETS / "kipo-video-poster.svg", video_poster_svg())
     write_svg(ASSETS / "kipo-social-preview.svg", social_preview_svg())
-    print(f"Generated 8 verified SVG assets in {ASSETS}")
+    print(f"Generated 8 verified SVG assets in {ASSETS.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

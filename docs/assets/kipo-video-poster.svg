@@ -1,40 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 210" width="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 240" width="100%">
+  <defs>
+    <radialGradient id="poster-glow" cx="0.1" cy="0.5" r="0.45">
+      <stop offset="0" stop-color="#B4F04A" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#B4F04A" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
   <style>
-    :root {
-      --bg: #0B111B;
-      --card: #162235;
-      --stroke: #2A3C58;
-      --fg: #F8FAFC;
-      --muted: #94A3B8;
-      --accent: #38BDF8;
-      --green: #34D399;
-      --amber: #FBBF24;
-    }
-    .sans { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
-    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+    .sans { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Helvetica, Arial, sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace; }
   </style>
-  <rect width="1080" height="210" rx="16" fill="var(--bg)" stroke="var(--stroke)" stroke-width="1.5"/>
+  <rect width="1080" height="240" rx="18" fill="#0A0E16"/>
+  <rect width="1080" height="240" rx="18" fill="url(#poster-glow)"/>
+  <rect x="0.75" y="0.75" width="1078.5" height="238.5" rx="17.25" fill="none" stroke="#243049" stroke-width="1.5"/>
 
-  <g transform="translate(40, 41)">
-    <circle cx="64" cy="64" r="54" fill="#0F2942" stroke="var(--accent)" stroke-width="3"/>
-    <circle cx="64" cy="64" r="44" fill="none" stroke="#1E3A5F" stroke-width="1.5"/>
-    <polygon points="52,39 52,89 94,64" fill="var(--accent)"/>
-  </g>
+  <circle cx="120" cy="120" r="66" fill="none" stroke="#B4F04A" stroke-opacity="0.25" stroke-width="2"/>
+  <circle cx="120" cy="120" r="54" fill="#B4F04A"/>
+  <path d="M106 92 L106 148 L150 120 Z" fill="#0A0E16" stroke="#0A0E16" stroke-width="4" stroke-linejoin="round"/>
 
-  <g transform="translate(194, 36)">
-    <rect x="0" y="0" width="268" height="26" rx="6" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="134" y="17" text-anchor="middle" class="mono" font-size="11.5" font-weight="700" fill="var(--green)">ARCHITECTURE VIDEO · 2M 22S · HD AUDIO</text>
+  <rect x="224" y="40" width="284.4" height="26" rx="13" fill="#1C2A12" stroke="#B4F04A" stroke-opacity="0.5"/>
+  <text x="366.2" y="57.5" text-anchor="middle" class="mono" font-size="12" font-weight="700" fill="#B4F04A">PRODUCT TRAILER · ~1 MIN · HD AUDIO</text>
+  <text x="224" y="112" class="sans" font-size="32" font-weight="800" letter-spacing="-0.6" fill="#F4F7FB">See how Kipo stops AI amnesia</text>
+  <text x="224" y="150" class="sans" font-size="32" font-weight="800" letter-spacing="-0.6" fill="#F4F7FB">and dangerous commands.</text>
+  <text x="224" y="192" class="mono" font-size="13.5" fill="#8C99AD">Click to play the MP4  ·  or run kp demo for the 5-minute offline tour</text>
 
-    <rect x="280" y="0" width="146" height="26" rx="6" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="353" y="17" text-anchor="middle" class="mono" font-size="11.5" font-weight="700" fill="var(--amber)">8 SCENES · MP4</text>
-
-    <text x="0" y="60" class="sans" font-size="23" font-weight="800" fill="var(--fg)">Watch the full narrated Kipo architecture walkthrough</text>
-    <text x="0" y="89" class="sans" font-size="14" fill="var(--muted)">
-      Covers single-file SQLite WAL layout, read-time provenance semiring evaluation, Claude Code and Codex hooks,
-    </text>
-    <text x="0" y="110" class="sans" font-size="14" fill="var(--muted)">
-      PreToolUse command guards, sleep-time kp dream skill promotion, and zero-leakage team collaboration.
-    </text>
-    <text x="0" y="138" class="mono" font-size="12.5" fill="var(--accent)">Click to play or download docs/assets/kipo-explainer.mp4 (720p H.264 + AAC) · Or run: kp demo</text>
+  <g transform="translate(880 52) scale(0.53125)">
+    <defs>
+      <linearGradient id="tile-poster" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#1A2335"/>
+        <stop offset="1" stop-color="#0A0E16"/>
+      </linearGradient>
+    </defs>
+    <rect width="256" height="256" rx="60" fill="url(#tile-poster)"/>
+    <rect x="1.5" y="1.5" width="253" height="253" rx="58.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.09" stroke-width="3"/>
+    <rect x="56" y="56" width="40" height="144" rx="9" fill="#F4F7FB"/>
+    <path d="M110 128 L160 56 L202 56 L152 128 Z" fill="#B4F04A"/>
+    <path d="M110 128 L152 128 L202 200 L160 200 Z" fill="#7DD321"/>
+    <circle cx="188" cy="128" r="13" fill="#FFC940"/>
   </g>
 </svg>
