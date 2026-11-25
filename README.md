@@ -28,20 +28,34 @@
 
 # Kipo (`kp`)
 
+<img align="right" src="docs/assets/kipo-logo.svg" width="76" height="76" alt="Kipo standalone logo">
+
 **Kipo (`kp`)** is a local-first memory database for AI coding agents and engineering teams. It stores redacted verbatim sources, bitemporal claims, read-time provenance proofs, and distilled skills inside a single WAL SQLite file (`kp.sqlite`) with zero cloud lock-in.
+
+<br clear="right">
 
 <p align="center">
   <img src="docs/assets/kipo-terminal-demo.svg" alt="Animated terminal session showing kp init, connect, prompt recall, PreToolUse command guard, and instant forget" width="100%">
 </p>
 
-<!--
-Video walkthrough embed: after pushing to GitHub, drag the 4.8 MB 720p narrated explainer MP4 into the GitHub web editor and paste the generated standalone https://github.com/user-attachments/assets/<uuid> line right below to render GitHub's native HTML5 video player.
--->
+## Architecture video walkthrough
 
 <p align="center">
-  <a href="TUTORIAL.md">
-    <img src="docs/assets/kipo-video-poster.svg" alt="Run the 5-minute interactive offline tour with kp demo" width="100%">
+  <a href="https://github.com/junjamrk/kipo/raw/main/docs/assets/kipo-explainer.mp4">
+    <img src="docs/assets/kipo-explainer-preview.gif" alt="Animated 8-scene preview of the Kipo architecture walkthrough" width="100%">
   </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/junjamrk/kipo/raw/main/docs/assets/kipo-explainer.mp4">
+    <img src="docs/assets/kipo-video-poster.svg" alt="Watch the full 2m 22s narrated Kipo architecture walkthrough (720p MP4 with audio)" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/junjamrk/kipo/raw/main/docs/assets/kipo-explainer.mp4"><strong>Stream full 2m 22s HD MP4 (with audio)</strong></a> ·
+  <a href="docs/assets/kipo-explainer.mp4">View video file in repository</a> ·
+  <a href="TUTORIAL.md">Run 5-minute offline CLI tour (<code>kp demo</code>)</a>
 </p>
 
 ---

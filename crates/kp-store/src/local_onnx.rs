@@ -414,11 +414,14 @@ fn select_ort_wheel_dylib_entry(
         if entry.is_dir() {
             continue;
         }
-        let name = entry.name();
-        if !name.starts_with("onnxruntime/capi/") {
+        let name = entry
+            .name()
+            .map_err(|e| StoreError::Embedding(format!("ORT wheel entry name error: {e}")))?;
+        let name_str = name.as_ref();
+        if !name_str.starts_with("onnxruntime/capi/") {
             continue;
         }
-        let base = name.rsplit('/').next().unwrap_or(name);
+        let base = name_str.rsplit('/').next().unwrap_or(name_str);
         if !expected_name.is_empty() && base == expected_name {
             chosen_index = Some(idx);
             break;

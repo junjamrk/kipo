@@ -27,15 +27,17 @@ pub(crate) fn parse(bytes: &[u8], extension: &str, cap: usize) -> Result<Vec<Chu
     let mut names = Vec::new();
     let mut total = 0;
     for name in zip.file_names() {
-        if name.len() > 4096
-            || name.contains('\\')
-            || name.starts_with('/')
-            || name.split('/').any(|p| p == ".." || p == ".")
+        let name = name?;
+        let name_str = name.as_ref();
+        if name_str.len() > 4096
+            || name_str.contains('\\')
+            || name_str.starts_with('/')
+            || name_str.split('/').any(|p| p == ".." || p == ".")
         {
             return Err(IngestError::Invalid("invalid Office ZIP path"));
         }
-        if allowed(name, extension) {
-            names.push(name.to_owned());
+        if allowed(name_str, extension) {
+            names.push(name.into_owned());
         }
     }
     let mut parts = BTreeMap::new();

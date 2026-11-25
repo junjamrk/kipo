@@ -28,20 +28,34 @@
 
 # Kipo (`kp`)
 
+<img align="right" src="docs/assets/kipo-logo.svg" width="76" height="76" alt="Kipo 独立品牌标志">
+
 **Kipo (`kp`)** 是面向 AI 编程智能体（Claude Code、Codex、Cursor、Windsurf）与工程团队的本地优先记忆基础设施。它将脱敏后的 L0 原文、双时态结构化事实、读时溯源半环（Provenance Semiring）证明树以及睡眠期演化的 `SKILL.md` 技能统一存放在单文件 SQLite 数据库（`kp.sqlite`）中，无需绑定任何云服务即可离线运行与按权限协同。
+
+<br clear="right">
 
 <p align="center">
   <img src="docs/assets/kipo-terminal-demo.svg" alt="Kipo 终端动画演示：初始化、接入智能体、上下文召回、PreToolUse 危险命令守卫与即时撤回" width="100%">
 </p>
 
-<!--
-视频导览挂载位：推送到 GitHub 后，将已压缩至 4.8 MB 的 720p 中文配音解说视频拖入 GitHub 网页编辑器，把生成的独立行 https://github.com/user-attachments/assets/<uuid> 粘贴在下方即可渲染 GitHub 原生 HTML5 视频播放器。
--->
+## 2 分 22 秒架构与实战视频导览
 
 <p align="center">
-  <a href="TUTORIAL.md">
-    <img src="docs/assets/kipo-video-poster.svg" alt="运行 kp demo 离线 5 分钟交互式全流程体验" width="100%">
+  <a href="https://github.com/junjamrk/kipo/raw/main/docs/assets/kipo-explainer.mp4">
+    <img src="docs/assets/kipo-explainer-preview.gif" alt="Kipo 八幕架构解说视频动态预览" width="100%">
   </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/junjamrk/kipo/raw/main/docs/assets/kipo-explainer.mp4">
+    <img src="docs/assets/kipo-video-poster.svg" alt="点击播放 2 分 22 秒 Kipo 全程中文配音架构导览视频（720p HD MP4）" width="100%">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/junjamrk/kipo/raw/main/docs/assets/kipo-explainer.mp4"><strong>播放完整 2 分 22 秒中文配音视频（720p HD MP4）</strong></a> ·
+  <a href="docs/assets/kipo-explainer.mp4">在仓库中查看视频文件</a> ·
+  <a href="TUTORIAL.md">运行 5 分钟离线交互体验（<code>kp demo</code>）</a>
 </p>
 
 ---

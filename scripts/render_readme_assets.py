@@ -22,6 +22,49 @@ def write_svg(path: Path, content: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def logo_svg() -> str:
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="kp-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0B1322"/>
+      <stop offset="100%" stop-color="#132238"/>
+    </linearGradient>
+    <linearGradient id="kp-rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="55%" stop-color="#34D399"/>
+      <stop offset="100%" stop-color="#FBBF24"/>
+    </linearGradient>
+    <style>
+      .mono {{ font-family: {FONT_MONO}; }}
+    </style>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="url(#kp-bg)" stroke="url(#kp-rim)" stroke-width="5"/>
+  <rect x="24" y="24" width="208" height="208" rx="40" fill="none" stroke="#1E3352" stroke-width="1.5"/>
+
+  <circle cx="128" cy="116" r="68" fill="none" stroke="#1B2E4B" stroke-width="1.5" stroke-dasharray="5 5"/>
+
+  <line x1="76" y1="78" x2="180" y2="72" stroke="#38BDF8" stroke-width="6" stroke-linecap="round"/>
+  <line x1="76" y1="78" x2="126" y2="164" stroke="#38BDF8" stroke-width="6" stroke-linecap="round"/>
+  <line x1="180" y1="72" x2="126" y2="164" stroke="#34D399" stroke-width="6" stroke-linecap="round"/>
+  <line x1="76" y1="78" x2="128" y2="114" stroke="#38BDF8" stroke-width="3" stroke-opacity="0.65"/>
+  <line x1="180" y1="72" x2="128" y2="114" stroke="#34D399" stroke-width="3" stroke-opacity="0.65"/>
+  <line x1="126" y1="164" x2="128" y2="114" stroke="#FBBF24" stroke-width="3" stroke-opacity="0.75"/>
+
+  <circle cx="128" cy="114" r="10" fill="#0F172A" stroke="#E2E8F0" stroke-width="3"/>
+  <circle cx="76" cy="78" r="19" fill="#0F2942" stroke="#38BDF8" stroke-width="4"/>
+  <circle cx="76" cy="78" r="8" fill="#38BDF8"/>
+
+  <circle cx="180" cy="72" r="17" fill="#0D2E27" stroke="#34D399" stroke-width="4"/>
+  <circle cx="180" cy="72" r="7" fill="#34D399"/>
+
+  <circle cx="126" cy="164" r="19" fill="#2B2110" stroke="#FBBF24" stroke-width="4"/>
+  <circle cx="126" cy="164" r="8" fill="#FBBF24"/>
+
+  <rect x="86" y="192" width="84" height="32" rx="10" fill="#16253B" stroke="#2D466B" stroke-width="1.5"/>
+  <text x="128" y="214" text-anchor="middle" class="mono" font-size="19" font-weight="800" fill="#F8FAFC">kp</text>
+</svg>"""
+
+
 def hero_svg(dark: bool) -> str:
     if dark:
         bg = "#0B111B"
@@ -403,39 +446,44 @@ def architecture_svg() -> str:
 
 
 def video_poster_svg() -> str:
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 220" width="100%">
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 210" width="100%">
   <style>
     :root {{
-      --bg: #0F172A;
-      --card: #1E293B;
-      --stroke: #334155;
+      --bg: #0B111B;
+      --card: #162235;
+      --stroke: #2A3C58;
       --fg: #F8FAFC;
       --muted: #94A3B8;
       --accent: #38BDF8;
       --green: #34D399;
+      --amber: #FBBF24;
     }}
     .sans {{ font-family: {FONT_SANS}; }}
     .mono {{ font-family: {FONT_MONO}; }}
   </style>
-  <rect width="1080" height="220" rx="16" fill="var(--bg)" stroke="var(--stroke)" stroke-width="1.5"/>
+  <rect width="1080" height="210" rx="16" fill="var(--bg)" stroke="var(--stroke)" stroke-width="1.5"/>
 
-  <g transform="translate(42, 46)">
-    <circle cx="64" cy="64" r="52" fill="#0F2942" stroke="var(--accent)" stroke-width="2.5"/>
-    <polygon points="52,40 52,88 92,64" fill="var(--accent)"/>
+  <g transform="translate(40, 41)">
+    <circle cx="64" cy="64" r="54" fill="#0F2942" stroke="var(--accent)" stroke-width="3"/>
+    <circle cx="64" cy="64" r="44" fill="none" stroke="#1E3A5F" stroke-width="1.5"/>
+    <polygon points="52,39 52,89 94,64" fill="var(--accent)"/>
   </g>
 
-  <g transform="translate(196, 44)">
-    <rect x="0" y="0" width="178" height="26" rx="6" fill="var(--card)" stroke="var(--stroke)"/>
-    <text x="89" y="17" text-anchor="middle" class="mono" font-size="11.5" font-weight="700" fill="var(--green)">INTERACTIVE TOUR · 5 MIN</text>
+  <g transform="translate(194, 36)">
+    <rect x="0" y="0" width="268" height="26" rx="6" fill="var(--card)" stroke="var(--stroke)"/>
+    <text x="134" y="17" text-anchor="middle" class="mono" font-size="11.5" font-weight="700" fill="var(--green)">ARCHITECTURE VIDEO · 2M 22S · HD AUDIO</text>
 
-    <text x="0" y="60" class="sans" font-size="24" font-weight="800" fill="var(--fg)">See every subsystem execute live with zero API keys</text>
-    <text x="0" y="90" class="sans" font-size="14.5" fill="var(--muted)">
-      Run kp demo to exercise Claude Code and Codex hooks, semiring StalePremise invalidation, PreToolUse command
+    <rect x="280" y="0" width="146" height="26" rx="6" fill="var(--card)" stroke="var(--stroke)"/>
+    <text x="353" y="17" text-anchor="middle" class="mono" font-size="11.5" font-weight="700" fill="var(--amber)">8 SCENES · MP4</text>
+
+    <text x="0" y="60" class="sans" font-size="23" font-weight="800" fill="var(--fg)">Watch the full narrated Kipo architecture walkthrough</text>
+    <text x="0" y="89" class="sans" font-size="14" fill="var(--muted)">
+      Covers single-file SQLite WAL layout, read-time provenance semiring evaluation, Claude Code and Codex hooks,
     </text>
-    <text x="0" y="112" class="sans" font-size="14.5" fill="var(--muted)">
-      guards, lossless Markdown write-back, Carol non-interference isolation, and the 127.0.0.1 Web Inspector.
+    <text x="0" y="110" class="sans" font-size="14" fill="var(--muted)">
+      PreToolUse command guards, sleep-time kp dream skill promotion, and zero-leakage team collaboration.
     </text>
-    <text x="0" y="142" class="mono" font-size="13" fill="var(--accent)">$ kp demo --dir ./kipo-demo &amp;&amp; kp inspect --path ./kipo-demo/demo-lib --as alice</text>
+    <text x="0" y="138" class="mono" font-size="12.5" fill="var(--accent)">Click to play or download docs/assets/kipo-explainer.mp4 (720p H.264 + AAC) · Or run: kp demo</text>
   </g>
 </svg>"""
 
@@ -493,6 +541,7 @@ def social_preview_svg() -> str:
 
 
 def main() -> None:
+    write_svg(ASSETS / "kipo-logo.svg", logo_svg())
     write_svg(ASSETS / "kipo-hero-dark.svg", hero_svg(dark=True))
     write_svg(ASSETS / "kipo-hero-light.svg", hero_svg(dark=False))
     write_svg(ASSETS / "kipo-terminal-demo.svg", terminal_demo_svg())
@@ -500,7 +549,7 @@ def main() -> None:
     write_svg(ASSETS / "kipo-architecture.svg", architecture_svg())
     write_svg(ASSETS / "kipo-video-poster.svg", video_poster_svg())
     write_svg(ASSETS / "kipo-social-preview.svg", social_preview_svg())
-    print(f"Generated 7 verified SVG assets in {ASSETS}")
+    print(f"Generated 8 verified SVG assets in {ASSETS}")
 
 
 if __name__ == "__main__":
